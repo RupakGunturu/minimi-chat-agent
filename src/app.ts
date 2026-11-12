@@ -8,6 +8,7 @@ import { runAgent } from './agent.js';
 import { rateKey, userId } from './auth.js';
 import { clock, config, validTz } from './config.js';
 import { RateLimiter } from './limits.js';
+import { seedTurns } from './seed-data.js';
 import { checkPublicUrl } from './source-check.js';
 import type { Store } from './store.js';
 import type { SearchFn } from './types.js';
@@ -20,6 +21,8 @@ export function createApp(deps: AppDeps) {
   const app = new Hono<AppEnv>();
   const apiLimiter = new RateLimiter();
   const chatLimiter = new RateLimiter();
+  let apiHits = 0;
+  let chatHits = 0;
 
   app.use('*', async (c, next) => {
     const id = c.req.header('x-request-id') || randomUUID();
@@ -29,6 +32,7 @@ export function createApp(deps: AppDeps) {
   });
 
   app.use('/api/*', async (c, next) => {
+    if (++apiHits % 200 === 0) apiLimiter.prune();
     const uid = userId((name) => c.req.header(name));
     const result = apiLimiter.hit(rateKey(uid, c.req.header('x-forwarded-for')), config.apiRateLimit, config.apiRateWindowMs);
     c.header('X-RateLimit-Limit', String(config.apiRateLimit));
@@ -59,6 +63,9 @@ export function createApp(deps: AppDeps) {
     const body = await c.req.json().catch(() => ({}));
     const message = String(body.message ?? '').trim().slice(0, config.maxMessageChars);
     if (!message) return c.json({ error: 'message required', requestId }, 400);
+    if (!config.llmApiKey)
+      return c.json({ error: 'Model key missing. Set GEMINI_API_KEY (or LLM_API_KEY) in .env and restart.', requestId }, 503);
+    if (++chatHits % 100 === 0) chatLimiter.prune();
     const conv = String(body.conv || 'default').slice(0, 64);
     const tz = validTz(body.tz) ? String(body.tz) : config.defaultTz;
     if (deps.store.conv(uid, conv).length >= config.maxTurnsPerConv)
@@ -72,6 +79,8 @@ export function createApp(deps: AppDeps) {
       s.onAbort(() => ac.abort());
       const emit = (e: unknown) => { s.write(JSON.stringify(e) + '\n').catch(() => {}); };
       try {
+        if (!process.env.TAVILY_API_KEY)
+          emit({ type: 'status', text: 'Web search key is missing; this answer cannot be checked against sources.' });
         const result = await runAgent(deps, { uid, conv, message, tz, now: clock() }, emit, ac.signal);
         const claims = await result.claimsDone.catch(() => []);
         if (claims.length) emit({ type: 'claims', turnId: result.turn.id, claims });
@@ -115,7 +124,7 @@ export function createApp(deps: AppDeps) {
 
   app.get('/api/history', (c) => {
     const turns = deps.store.conv(userId((name) => c.req.header(name)), c.req.query('conv') || 'default');
-    return c.json(turns.map(({ id, ts, user, assistant, sources, claims }) => ({ id, ts, user, assistant, sources, claims })));
+    return c.json(turns.map(({ id, ts, user, assistant, sources, claims, verdicts }) => ({ id, ts, user, assistant, sources, claims, verdicts })));
   });
 
   app.get('/api/conversations', (c) => {
@@ -137,6 +146,14 @@ export function createApp(deps: AppDeps) {
         chatPerMinute: config.chatRateLimit,
       },
     });
+  });
+
+  app.post('/api/demo/seed', async (c) => {
+    const uid = userId((name) => c.req.header(name));
+    const body = await c.req.json().catch(() => ({}));
+    const tz = validTz(body.tz) ? String(body.tz) : config.defaultTz;
+    const added = await deps.store.addMany(seedTurns(clock(), tz, uid));
+    return c.json({ ok: true, added, conversations: deps.store.conversations(uid) });
   });
 
   app.post('/api/source-check', async (c) => {

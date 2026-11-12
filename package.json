@@ -12,8 +12,8 @@
     "eval": "tsx eval/run.ts",
     "typecheck": "tsc --noEmit",
     "check:client": "node --check public/app.js",
-    "test": "node --import tsx --test tests/api.test.ts",
-    "test:api": "node --import tsx --test tests/api.test.ts",
+    "test": "node --import tsx --test tests/api.test.ts tests/core.test.ts",
+    "test:api": "node --import tsx --test tests/api.test.ts tests/core.test.ts",
     "test:e2e": "playwright test",
     "check": "npm run typecheck && npm run check:client && npm test"
   },

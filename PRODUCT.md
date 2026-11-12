@@ -26,7 +26,7 @@ A single-page web chat, one local user, conversations persisted in a JSON store.
 
 - One tool only: `web_search` (Tavily), with `since` fanning out into dated and current searches.
 - One streaming model loop with a hard four-step cap and parallel tool calls.
-- Turns stored with UTC timestamps and timezone; retrieval is date window plus keyword overlap.
+- Turns stored with UTC timestamps and timezone; retrieval is BM25-style date + topic + claim scoring over small histories.
 - Claims are extracted asynchronously after the answer and reused for re-verification.
 - Conversation history is per-conversation, persisted locally; the `x-user-id` header is the seam for multi-user.
 - Static frontend (HTML/CSS/JS) served by a Hono server; chat streams as NDJSON events.

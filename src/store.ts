@@ -67,6 +67,15 @@ export class Store {
 
   add(t: Turn) { this.turns.push(t); return this.flush(); }
 
+  /** Non-destructive seed: insert only turns whose id is not already present. */
+  addMany(turns: Turn[]): Promise<number> {
+    const ids = new Set(this.turns.map((t) => t.id));
+    const fresh = turns.filter((t) => !ids.has(t.id));
+    if (!fresh.length) return Promise.resolve(0);
+    this.turns.push(...fresh);
+    return this.flush().then(() => fresh.length);
+  }
+
   patch(id: string, p: Partial<Turn>) {
     const t = this.turns.find((x) => x.id === id);
     if (t) Object.assign(t, p);

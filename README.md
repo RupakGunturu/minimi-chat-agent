@@ -14,11 +14,14 @@ keeps the model loop small:
 - **Dates are resolved in code.** `chrono-node` runs against the user's wall clock and
   timezone. The model receives absolute dates and never does calendar arithmetic.
 - **Memory is data.** Every turn is stored with a UTC timestamp and retrieval is
-  deterministic. Answers produce structured claims that can be re-checked later.
+  deterministic: a small BM25-style score over the user text, answer, and claims, with a
+  strong boost for a resolved date. Answers produce structured claims that can be re-checked.
 - **Re-verification starts early.** For "has anything changed since?" the claim searches
-  run in parallel before the first model token.
-- **Honest negatives are structural.** Answers distinguish *changed*, *unchanged*, and
-  *couldn't verify*, and say what was checked.
+  run in parallel before the first model token; duplicate check queries are collapsed.
+- **Honest negatives are structural.** The model emits machine-readable verdicts; code
+  strips the control block, validates citations, persists the result, and the UI shows
+  *changed / unchanged / couldn't verify* chips. No "nothing changed" without saying what
+  was checked.
 
 Read [`DESIGN.md`](DESIGN.md) for the architecture and the tradeoffs.
 
@@ -55,9 +58,9 @@ npm start          # one-shot server
 npm run seed       # reset the store with relative demo history
 npm run eval       # deterministic checks, plus live end-to-end + judge when keys exist
 npm run typecheck  # tsc --noEmit
-npm test           # API integration tests (offline)
+npm test           # API + retrieval/date/prompt tests (offline)
 npm run test:e2e   # Playwright UI tests (offline; install browsers once)
-npm run check      # typecheck + client syntax + API tests
+npm run check      # typecheck + client syntax + offline tests
 ```
 
 The first Playwright run needs `npx playwright install chromium`.
@@ -76,17 +79,17 @@ starting the server to fake the clock.
 
 ```
 src/time.ts          deterministic date resolution (chrono, timezone-safe)
-src/retrieve.ts      date + keyword retrieval over past turns
+src/retrieve.ts      BM25-style date + topic + claim retrieval over past turns
 src/context.ts       what the model gets: dates, history, claims, prefetch plan
 src/search.ts        Tavily wrapper: since -> dated + current fan-out, cache
-src/agent.ts         one streaming loop, parallel tools, step cap, persist
+src/agent.ts         one streaming loop, parallel tools, step cap, verdicts, persist
 src/claims.ts        async claim extraction
-src/prompt.ts        static (cached) + dynamic system prompt
+src/prompt.ts        static (cached) + dynamic system prompt, sanitize/citation guards
 src/app.ts           Hono routes, limits, error handling
 src/server.ts        process entry point
 src/store.ts         atomic JSON store
 public/              static chat UI
-tests/               API + Playwright tests
+tests/               API, core, and Playwright tests
 eval/                deterministic and live evaluation
 scripts/seed.ts      demo history CLI
 ```

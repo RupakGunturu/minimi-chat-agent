@@ -423,7 +423,14 @@ function renderRail() {
       : showArchived
         ? 'No archived chats.'
         : 'No entries yet. Your dates will collect here.';
-    entries.append(el('div', 'rail-empty', text));
+    const box = el('div', 'rail-empty', text);
+    if (!term && !showArchived) {
+      const demo = el('button', 'button rail-demo', 'Load demo history');
+      demo.type = 'button';
+      demo.addEventListener('click', () => loadDemoHistory(demo));
+      box.append(demo);
+    }
+    entries.append(box);
     return;
   }
 
@@ -498,6 +505,26 @@ async function loadConversations(silent = false) {
     if (silent) return;
     entries.innerHTML = '';
     entries.append(el('div', 'rail-empty', 'Could not load entries. They will refresh after the next answer.'));
+  }
+}
+
+async function loadDemoHistory(button) {
+  const label = 'Load demo history';
+  if (button) { button.disabled = true; button.textContent = 'Loading…'; }
+  try {
+    const r = await fetch('/api/demo/seed', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tz }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    await loadConversations(true);
+    toast(data.added ? `Loaded ${data.added} demo turns.` : 'Demo history is already loaded.');
+  } catch (e) {
+    toast(`Could not load demo history: ${e.message}`, { type: 'error' });
+  } finally {
+    if (button) { button.disabled = false; button.textContent = label; }
   }
 }
 
@@ -730,12 +757,16 @@ function formatRich(text, sources = {}) {
   h = h.replace(/(?:^[ \t]*[-*] .+\n?)+/gm, (m) => '<ul>' + m.trim().split('\n').map((line) => `<li>${line.replace(/^[ \t]*[-*] /, '')}</li>`).join('') + '</ul>');
   h = h.replace(/(?:^[ \t]*\d+\. .+\n?)+/gm, (m) => '<ol>' + m.trim().split('\n').map((line) => `<li>${line.replace(/^[ \t]*\d+\. /, '')}</li>`).join('') + '</ol>');
   h = h.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
-  h = h.replace(/\[(\d+)\]/g, (m, n) => {
-    const s = sources[n];
-    if (!s) return m;
-    const title = s.title || hostOf(s.url);
-    const url = safeUrl(s.url);
-    return `<button type="button" class="cite" data-url="${esc(url)}" data-title="${esc(title)}" data-host="${esc(hostOf(s.url))}" data-pub="${esc(s.published || '')}" aria-label="Source ${n}: ${esc(title)}" title="${esc(title)}">${n}</button>`;
+  h = h.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (m, group) => {
+    const out = group.split(',').map((part) => {
+      const n = part.trim();
+      const s = sources[n];
+      if (!s) return '';
+      const title = s.title || hostOf(s.url);
+      const url = safeUrl(s.url);
+      return `<button type="button" class="cite" data-url="${esc(url)}" data-title="${esc(title)}" data-host="${esc(hostOf(s.url))}" data-pub="${esc(s.published || '')}" aria-label="Source ${n}: ${esc(title)}" title="${esc(title)}">${n}</button>`;
+    }).filter(Boolean);
+    return out.length ? out.join(' ') : m;
   });
   h = h.replace(/\u0001IC(\d+)\u0001/g, (_, i) => inlines[+i] || '');
   h = h.replace(/\u0000CB(\d+)\u0000/g, (_, i) => {
@@ -830,6 +861,8 @@ function addBot() {
   const status = el('div', 'msg-meta', 'Reading…');
   working.append(typing, status);
   const body = el('div', 'body');
+  const verdicts = el('section', 'verdicts');
+  verdicts.hidden = true;
   const claims = el('section', 'claims');
   claims.hidden = true;
   const claimsLabel = el('div', 'sec-label', 'Claims logged');
@@ -855,10 +888,10 @@ function addBot() {
   trace.append(summary, traceBody);
   const actions = el('div', 'msg-actions');
   actions.hidden = true;
-  content.append(byline, working, body, claims, sources, meta, trace, actions);
+  content.append(byline, working, body, verdicts, claims, sources, meta, trace, actions);
   msg.append(avatar, content);
   wrap.append(msg);
-  return { msg, avatar, content, byline, who, sep, resolved, working, typing, status, body, claims, claimsLabel, claimList, sources, srcHead, srcLabel, srcCopy, srcList, srcNote, srcChecked, meta, trace, summary, traceBody, actions, rawText: '', firstText: false, userNode: null, turnId: '' };
+  return { msg, avatar, content, byline, who, sep, resolved, working, typing, status, body, verdicts, claims, claimsLabel, claimList, sources, srcHead, srcLabel, srcCopy, srcList, srcNote, srcChecked, meta, trace, summary, traceBody, actions, rawText: '', firstText: false, userNode: null, turnId: '' };
 }
 
 function addNote(b, key, value) {
@@ -909,6 +942,39 @@ function claimDate(value) {
   if (!value) return '';
   const d = new Date(`${value}T00:00:00`);
   return Number.isNaN(d.getTime()) ? value : dateShort(d);
+}
+
+function renderVerdicts(b, checks, sources = {}) {
+  if (!Array.isArray(checks) || !checks.length) {
+    b.verdicts.hidden = true;
+    return;
+  }
+  b.verdicts.hidden = false;
+  b.verdicts.innerHTML = '';
+  b.verdicts.append(el('div', 'sec-label', 'Re-check'));
+  const list = el('ul', 'verdict-list');
+  for (const c of checks.slice(0, 8)) {
+    const kind = c.verdict === 'changed' || c.verdict === 'unchanged' ? c.verdict : 'unverified';
+    const li = el('li', `verdict ${kind}`);
+    li.append(el('span', 'verdict-kind', kind === 'changed' ? 'Changed' : kind === 'unchanged' ? 'Unchanged' : "Couldn't verify"));
+    li.append(el('span', 'verdict-entity', c.entity || ''));
+    if (c.note) li.append(el('span', 'verdict-note', c.note));
+    const s = c.source ? sources[c.source] : null;
+    if (s) {
+      const title = s.title || hostOf(s.url);
+      const cite = el('button', 'cite', String(c.source));
+      cite.type = 'button';
+      cite.dataset.url = safeUrl(s.url);
+      cite.dataset.title = title;
+      cite.dataset.host = hostOf(s.url);
+      cite.dataset.pub = s.published || '';
+      cite.setAttribute('aria-label', `Source ${c.source}: ${title}`);
+      cite.title = title;
+      li.append(cite);
+    }
+    list.append(li);
+  }
+  b.verdicts.append(list);
 }
 
 function renderClaims(b, claims) {
@@ -1209,6 +1275,7 @@ async function loadHistory() {
       b.meta.textContent = historyMeta(t);
       renderSources(b, t.sources || [], b.rawText, sourceSeen, t.ts);
       for (const s of (t.sources || [])) if (s.url) sourceSeen.add(s.url);
+      renderVerdicts(b, t.verdicts || [], src);
       renderClaims(b, t.claims || []);
       addActions(b, () => b.rawText, () => t.user, b.turnId, isLast);
       attachUserActions(user, () => t.user, () => b.turnId, () => b, isLast);
@@ -1617,6 +1684,8 @@ async function ask(message, edit = null) {
       b.rawText = text;
       flush();
     } else if (e.type === 'done') {
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
+      if (typeof e.answer === 'string') text = e.answer;
       b.working.hidden = true;
       b.turnId = e.turnId || '';
       b.body.innerHTML = formatRich(text, sources);
@@ -1629,6 +1698,11 @@ async function ask(message, edit = null) {
       live.textContent = `Answer ready. ${srcCount} source${srcCount === 1 ? '' : 's'} available.`;
       scrollBottom();
       finish();
+    } else if (e.type === 'verdicts') {
+      renderVerdicts(b, e.checks, sources);
+      const count = Array.isArray(e.checks) ? e.checks.length : 0;
+      if (count) live.textContent = `Answer ready. ${count} re-check${count === 1 ? '' : 's'} reported.`;
+      scrollBottom();
     } else if (e.type === 'claims') {
       renderClaims(b, e.claims);
       const count = Array.isArray(e.claims) ? e.claims.length : 0;
@@ -1645,7 +1719,10 @@ async function ask(message, edit = null) {
       body: JSON.stringify({ message: textMessage, conv, tz }),
       signal: controller.signal,
     });
-    if (!r.ok || !r.body) throw new Error(`Request failed (${r.status})`);
+    if (!r.ok || !r.body) {
+      const info = await r.json().catch(() => null);
+      throw new Error(info?.error || `Request failed (${r.status})`);
+    }
     const reader = r.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
@@ -1942,6 +2019,8 @@ $('#clearLocal')?.addEventListener('click', () => {
   applySettings();
   toast('Preferences reset.');
 });
+
+$('#loadDemo')?.addEventListener('click', (e) => loadDemoHistory(e.currentTarget));
 
 $('#clearAll')?.addEventListener('click', async () => {
   const ok = await openConfirm({

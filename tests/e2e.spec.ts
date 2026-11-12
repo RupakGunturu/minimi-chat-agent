@@ -11,6 +11,11 @@ const frames = (turnId: string, prompt: string) => [
   },
   { type: 'text', delta: `Here is the **answer** for ${prompt} [1]. <img src=x onerror="window.__xss=2">` },
   {
+    type: 'verdicts',
+    turnId,
+    checks: [{ entity: 'Release export path', verdict: 'changed', note: 'Old path removed', source: 1 }],
+  },
+  {
     type: 'claims',
     turnId,
     claims: [{ entity: 'Release', claim: 'Export path changed', as_of: '2026-11-01', check_query: 'release export path' }],
@@ -60,6 +65,8 @@ test('history, safe rendering, source actions, edit, and regenerate', async ({ p
   await expect(live).toContainText('Here is the answer for What changed today?');
   await expect(page.locator('#live')).toContainText('Answer ready');
   await expect(live.locator('.claim-list li')).toHaveCount(1);
+  await expect(live.locator('.verdict-list li')).toHaveCount(1);
+  await expect(live.locator('.verdict.changed')).toContainText('Changed');
   await expect(live.locator('.src a').first()).toContainText('<img src=x');
   expect(await page.locator('img').count()).toBe(0);
   expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined();

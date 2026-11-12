@@ -1,4 +1,4 @@
-import { clock } from './config.js';
+import { clock, config } from './config.js';
 import { retrieve } from './retrieve.js';
 import type { Store } from './store.js';
 import { isoDate, isoDateTime, resolveDates, type Resolved } from './time.js';
@@ -17,6 +17,7 @@ export interface Ctx {
   olderSummary: string;
   olderCount: number;
   noMatch: boolean;
+  recheck: boolean;
   prefetch: Claim[];
   trace: unknown;
 }
@@ -31,9 +32,9 @@ export function buildContext(store: Store, req: Req): Ctx {
   const dates = resolved.flatMap((r) => [r.date, r.alt].filter(Boolean) as string[]);
 
   const all = store.conv(uid, conv);
-  const live = all.slice(-10);
-  const older = all.slice(0, Math.max(0, all.length - 10));
-  const summaryTurns = older.slice(-24);
+  const live = all.slice(-config.liveTurns);
+  const older = all.slice(0, Math.max(0, all.length - config.liveTurns));
+  const summaryTurns = older.slice(-config.summaryTurns);
   const olderSummary = summaryTurns.map((t) => {
     const day = isoDate(new Date(t.ts), tz);
     const claims = t.claims.map((c) => `${c.entity}: ${c.claim}`).join('; ');
@@ -53,11 +54,12 @@ export function buildContext(store: Store, req: Req): Ctx {
   const seen = new Set<string>();
   const prefetch: Claim[] = [];
   if (wantsRecheck)
-    for (const m of matches.slice(0, 2))
+    for (const m of matches.slice(0, 3))
       for (const c of m.turn.claims) {
         const as_of = c.as_of || m.date;
-        if (as_of >= today || seen.has(c.check_query)) continue;
-        seen.add(c.check_query);
+        const key = c.check_query.trim().toLowerCase();
+        if (as_of >= today || seen.has(key)) continue;
+        seen.add(key);
         prefetch.push({ ...c, as_of });
       }
 
@@ -67,8 +69,8 @@ export function buildContext(store: Store, req: Req): Ctx {
       ? 'No earlier turn matched the dates or topic words in this message.'
       : 'No earlier turn was needed for this message.';
   return {
-    now: isoDateTime(now, tz), today, tz, resolved, matches, live, olderSummary, olderCount: older.length, noMatch,
-    prefetch: prefetch.slice(0, 6),
+    now: isoDateTime(now, tz), today, tz, resolved, matches, live, olderSummary, olderCount: older.length, noMatch, recheck: wantsRecheck,
+    prefetch: prefetch.slice(0, config.maxPrefetch),
     trace: {
       now: isoDateTime(now, tz), tz,
       resolved: resolved.map((r) => ({ phrase: r.phrase, date: r.date, alt: r.alt })),
@@ -76,7 +78,7 @@ export function buildContext(store: Store, req: Req): Ctx {
       explain,
       trimmed: older.length,
       summarized: summaryTurns.length,
-      recheck: wantsRecheck, prefetch: Math.min(prefetch.length, 6), noMatch,
+      recheck: wantsRecheck, prefetch: Math.min(prefetch.length, config.maxPrefetch), noMatch,
     },
   };
 }
