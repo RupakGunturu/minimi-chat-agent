@@ -1,31 +1,97 @@
+# Minimi
 
-<<<<<<< HEAD
-One tool (web search), built around time and conversation continuity. Read `DESIGN.md` for the architecture.
+A time-aware chat assistant with exactly one tool: **web search**.
+
+Its three sample questions are not search questions. They are questions about time and
+continuity: *"What did I ask you on 3 November? Is your answer still correct today?"*,
+*"Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?"*,
+*"On Monday we shortlisted 5 CRM tools. Has any of them changed pricing or shipped
+something big since?"*
+
+Most agents leave those to the model. Minimi moves time and memory into ordinary code and
+keeps the model loop small:
+
+- **Dates are resolved in code.** `chrono-node` runs against the user's wall clock and
+  timezone. The model receives absolute dates and never does calendar arithmetic.
+- **Memory is data.** Every turn is stored with a UTC timestamp and retrieval is
+  deterministic. Answers produce structured claims that can be re-checked later.
+- **Re-verification starts early.** For "has anything changed since?" the claim searches
+  run in parallel before the first model token.
+- **Honest negatives are structural.** Answers distinguish *changed*, *unchanged*, and
+  *couldn't verify*, and say what was checked.
+
+Read [`DESIGN.md`](DESIGN.md) for the architecture and the tradeoffs.
+
+## Quickstart
+
+Requires Node 20+.
 
 ```bash
 npm install
 cp .env.example .env     # add GEMINI_API_KEY and TAVILY_API_KEY
-npm run seed             # optional: demo history (Mon CRM shortlist, last Tue Postgres, 3 Nov vector DB)
 npm run dev              # http://localhost:3000
-npm run eval             # deterministic checks always; end-to-end + judge when keys are set
 ```
 
-Models run through the OpenAI-compatible API. By default this points at Google Gemini
-(`https://generativelanguage.googleapis.com/v1beta/openai/`); set `LLM_BASE_URL`,
-`MODEL_MAIN` and `MODEL_FAST` to use another OpenAI-compatible provider.
+Then use **Load demo history** in the empty chat rail (or in Settings → Data) to try the
+sample questions immediately. `npm run seed` is the CLI equivalent and **resets** the
+local store.
 
-Try: "What did I ask you on 3 November? Is your answer still correct today?", "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?", "On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing or shipped something big since?"
+## API keys
 
-Seeded dates are computed relative to today. Set `NOW_OVERRIDE` before `npm run seed` and `npm run dev` to fake the clock.
+| Key | Required | Used for |
+| --- | --- | --- |
+| `GEMINI_API_KEY` (or `LLM_API_KEY`) | yes | answers, tool calls, claim extraction |
+| `TAVILY_API_KEY` | yes | `web_search` |
+
+Everything else in [`.env.example`](.env.example) is optional. Models run through the
+OpenAI-compatible API; point `LLM_BASE_URL`, `MODEL_MAIN`, and `MODEL_FAST` at another
+provider if you prefer.
+
+## Commands
+
+```bash
+npm run dev        # watch server on :3000
+npm start          # one-shot server
+npm run seed       # reset the store with relative demo history
+npm run eval       # deterministic checks, plus live end-to-end + judge when keys exist
+npm run typecheck  # tsc --noEmit
+npm test           # API integration tests (offline)
+npm run test:e2e   # Playwright UI tests (offline; install browsers once)
+npm run check      # typecheck + client syntax + API tests
+```
+
+The first Playwright run needs `npx playwright install chromium`.
+
+## Try these
+
+- "On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them
+  changed pricing or shipped something big since?"
+- "What did I ask you on 3 November? Is your answer still correct today?"
+- "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?"
+
+Seeded dates are computed relative to today. Set `NOW_OVERRIDE` before seeding and
+starting the server to fake the clock.
+
+## Layout
 
 ```
-src/time.ts      date resolution (chrono, timezone-safe)
-src/retrieve.ts  date + keyword retrieval over past turns
-src/context.ts   decides what the model gets: dates, history, prefetch
-src/search.ts    Tavily wrapper: since → dated + current fan-out, cache
-src/agent.ts     the loop: stream, parallel tools, step cap, persist
-src/claims.ts    async claim extraction
-src/prompt.ts    static (cached) + dynamic system prompt
+src/time.ts          deterministic date resolution (chrono, timezone-safe)
+src/retrieve.ts      date + keyword retrieval over past turns
+src/context.ts       what the model gets: dates, history, claims, prefetch plan
+src/search.ts        Tavily wrapper: since -> dated + current fan-out, cache
+src/agent.ts         one streaming loop, parallel tools, step cap, persist
+src/claims.ts        async claim extraction
+src/prompt.ts        static (cached) + dynamic system prompt
+src/app.ts           Hono routes, limits, error handling
+src/server.ts        process entry point
+src/store.ts         atomic JSON store
+public/              static chat UI
+tests/               API + Playwright tests
+eval/                deterministic and live evaluation
+scripts/seed.ts      demo history CLI
 ```
-=======
->>>>>>> 1875448ed03f74fca63d862c454a34b747e0223a
+
+## Data
+
+Conversations live in `data/store.json` (git-ignored). Delete that file, or use
+Settings → Data → Clear all chats, to start fresh.
