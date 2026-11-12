@@ -1,5 +1,5 @@
-# Time-aware chat agent
 
+<<<<<<< HEAD
 One tool (web search), built around time and conversation continuity. Read `DESIGN.md` for the architecture.
 
 ```bash
@@ -27,3 +27,5 @@ src/agent.ts     the loop: stream, parallel tools, step cap, persist
 src/claims.ts    async claim extraction
 src/prompt.ts    static (cached) + dynamic system prompt
 ```
+=======
+>>>>>>> 1875448ed03f74fca63d862c454a34b747e0223a

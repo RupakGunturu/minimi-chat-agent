@@ -41,6 +41,33 @@ app.post('/api/chat', async (c) => {
   });
 });
 
+app.patch('/api/conversations/:id', async (c) => {
+  const uid = c.req.header('x-user-id') || 'local';
+  const body = await c.req.json().catch(() => ({}));
+  const patch: { title?: string; pinned?: boolean; archived?: boolean } = {};
+  if (typeof body.title === 'string') patch.title = body.title.trim().slice(0, 120);
+  if (typeof body.pinned === 'boolean') patch.pinned = body.pinned;
+  if (typeof body.archived === 'boolean') patch.archived = body.archived;
+  if (!Object.keys(patch).length) return c.json({ error: 'nothing to update' }, 400);
+  await store.patchConv(uid, c.req.param('id'), patch);
+  return c.json({ ok: true });
+});
+
+app.delete('/api/conversations', async (c) => {
+  await store.clear(c.req.header('x-user-id') || 'local');
+  return c.json({ ok: true });
+});
+
+app.delete('/api/conversations/:id', async (c) => {
+  await store.deleteConv(c.req.header('x-user-id') || 'local', c.req.param('id'));
+  return c.json({ ok: true });
+});
+
+app.delete('/api/turns/:id', async (c) => {
+  const removed = await store.deleteTurn(c.req.header('x-user-id') || 'local', c.req.param('id'));
+  return removed ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
+});
+
 app.get('/api/history', (c) => {
   const turns = store.conv(c.req.header('x-user-id') || 'local', c.req.query('conv') || 'default');
   return c.json(turns.map(({ id, ts, user, assistant, sources, claims }) => ({ id, ts, user, assistant, sources, claims })));

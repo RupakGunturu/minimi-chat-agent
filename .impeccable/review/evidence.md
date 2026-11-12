@@ -95,6 +95,18 @@ Final measurements (Playwright, 1440×900 / 768×1024 / 390×844@2x / 320×568):
 - Refreshed `desktop*.png`, `mobile*.png`, `final-mobile-320.png`, `final-tablet.png` after the change.
 - Detector `[]`; extracted inline script passes `node --check`; `npm run typecheck` passes.
 
+## Unified shell pass — 2026-11-12
+- Split the self-contained page into `public/index.html`, `public/styles.css`, and `public/app.js`; theme bootstrap remains inline to prevent a flash of the wrong theme.
+- Rebuilt the shell around the requested ledger layout: conversation rail with pinned and date groups, search, archive view, inline rename, pin/archive actions, delete confirmation with undo, header rename/actions, and a mobile drawer with focus containment and `inert` background.
+- Added per-conversation drafts in `minimi-drafts`, rail keyboard navigation (`↑`/`↓`/`Home`/`End`, `Shift+F10`), settings tabs for appearance/chat/data, accent swatches, text size, density, content width, reduced motion, timestamp toggle, shortcuts overlay, JSON export, and reset/clear actions.
+- Added live stop control via `AbortController`, retry, copy answer, copy code, source citations, claim as-of lists, working notes, date separators, jump-to-latest, offline banner, toasts, and stream-safe markdown with escaped code/source content.
+- Added minimal persistence support: `PATCH /api/conversations/:id` for title/pin/archive, `DELETE /api/conversations/:id`, `DELETE /api/conversations`, and `DELETE /api/turns/:id`.
+- Mocked Playwright flows passed: history render, search filter, dark/accent settings, header rename, new-chat empty state, mocked streaming with cite/source/claim/resolved/meta, archived view, delete undo, per-chat draft restoration, rail arrow focus, fresh-chat rename, mobile drawer, and no console/page errors.
+- Actual-server smoke passed: no console/page errors, light theme CSS applied, no horizontal overflow, composer inside viewport, 200 from `/api/conversations` and `/api/history`; isolated `PATCH`/`DELETE` conversation routes returned `{ok:true}`.
+- Refreshed `final-desktop.png`, `final-desktop-cite.png`, `final-desktop-empty.png`, `final-desktop-dark.png`, `final-mobile.png`, `final-mobile-empty.png`, `final-mobile-nav.png`, `final-mobile-dark.png`, `final-mobile-320.png`, and `final-tablet.png`.
+- Captured metrics: 1440x900, 768x1024, 390x844, 320x568; no horizontal overflow at any size; composer bottom equals viewport bottom; log heights 739 / 867 / 693 / 417; populated history = 4 messages, empty = 0.
+- `node --check public/app.js` and `npm run typecheck` pass.
+
 ## Known limitations / disclosure
 - This session’s model cannot accept image input, so the screenshot files are passed as required evidence but were validated only by dimensions, file size, sampled pixels, and DOM metrics. The build thread also could not visually inspect the shots.
 - The shipped `impeccable-finish-reviewer` agent is not exposed in this harness; this review is a substituted fresh-context pass using `reference/degraded/finish-reviewer.md`. Disclose this in the final report.

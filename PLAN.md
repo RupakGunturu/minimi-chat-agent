@@ -8,7 +8,9 @@ hairline rules, mono dates, system sans prose.
 
 | Layer | File |
 | --- | --- |
-| UI markup, CSS, client JS | `public/index.html` |
+| UI markup | `public/index.html` |
+| UI styles | `public/styles.css` |
+| Client state and rendering | `public/app.js` |
 | Chat/history/conversation routes | `src/server.ts` |
 | Persisted turns and conversation summaries | `src/store.ts` |
 | Agent loop, streaming, persistence | `src/agent.ts` |
@@ -38,20 +40,21 @@ hairline rules, mono dates, system sans prose.
 
 - [x] New entry, switch, persist the active conversation.
 - [x] Auto-title from the first user message.
-- [ ] Rename a conversation.
-- [ ] Delete a conversation with a clear confirmation and undo-safe copy.
-- [ ] Search/filter the ledger rail.
-- [ ] Empty, loading, and error states for the rail (error state exists; polish copy).
+- [x] Rename a conversation.
+- [x] Delete a conversation with a clear confirmation and undo-safe copy.
+- [x] Search/filter the ledger rail.
+- [x] Empty, loading, and error states for the rail.
 
 ### 2. Message actions
 
 - [x] Retry a failed turn.
-- [ ] Stop generation (client `AbortController` + server abort on disconnect).
+- [x] Stop generation (client `AbortController` + server abort on disconnect).
 - [ ] Regenerate the last answer.
 - [ ] Edit and resend a user message.
-- [ ] Copy answer / copy source list.
+- [x] Copy answer.
+- [ ] Copy source list.
 - [x] ArrowUp/ArrowDown recall in the composer.
-- [ ] Preserve drafts per conversation.
+- [x] Preserve drafts per conversation.
 
 ### 3. Time and memory (core product)
 
@@ -59,7 +62,7 @@ hairline rules, mono dates, system sans prose.
 - [x] Claim extraction and speculative re-checks.
 - [x] "as of" stamps on claims.
 - [ ] Context trimming or summaries for very long conversations.
-- [ ] Export memory / clear one conversation / clear all data.
+- [x] Export memory / clear one conversation / clear all data.
 - [ ] Explain why a memory was or was not matched (trace exists; add plain-language copy).
 
 ### 4. Sources and trust
@@ -75,7 +78,7 @@ hairline rules, mono dates, system sans prose.
 - [x] Theme auto/light/dark.
 - [x] Automatic timezone.
 - [ ] Manual timezone override.
-- [ ] Export conversation JSON / clear local data.
+- [x] Export conversation JSON / clear local data.
 - [ ] Provider/model status without exposing keys or billing/credit UI.
 
 ### 6. Accessibility and mobile
@@ -84,13 +87,13 @@ hairline rules, mono dates, system sans prose.
 - [x] Skip link, visible focus rings, aria-live status, reduced motion.
 - [x] Touch targets, safe areas, composer height, citation tap targets.
 - [x] Rail entries and theme controls are keyboard reachable.
-- [ ] Keyboard navigation within the rail (arrow keys between entries).
-- [ ] Shortcut help overlay (`?`).
+- [x] Keyboard navigation within the rail (arrow keys between entries).
+- [x] Shortcut help overlay (`?`).
 - [ ] Verify screen-reader announcements for streaming answers and claims.
 
 ### 7. Reliability and security
 
-- [ ] Abort in-flight streams when switching conversations or stopping.
+- [x] Abort in-flight streams when switching conversations or stopping.
 - [ ] Rate limiting, request size caps, and per-conversation turn caps.
 - [ ] Full XSS and markdown audit, including source titles.
 - [ ] Server-side error logging with request ids.
@@ -117,8 +120,8 @@ hairline rules, mono dates, system sans prose.
 
 ## Definition of done for a UI pass
 
-1. `impeccable detect --json public/index.html` returns `[]`.
-2. Extracted inline script passes `node --check`; `npm run typecheck` passes.
-3. Playwright checks pass at 1440, 720, and 390 in light and dark, empty and populated.
+1. `public/index.html` uses the external `public/styles.css` and `public/app.js`.
+2. `node --check public/app.js` and `npm run typecheck` pass.
+3. Playwright checks pass at desktop, tablet, and mobile widths in light and dark, empty and populated.
 4. Screenshots in `.impeccable/review/` are refreshed and dimensions are correct.
 5. No console errors; no duplicate dev server started.

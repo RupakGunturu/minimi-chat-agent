@@ -5,6 +5,7 @@ export interface Claim {
   check_query: string; // short web query that would reveal whether it changed
 }
 export interface Source { id: number; title: string; url: string; published?: string }
+export interface ConvMeta { title?: string; pinned?: boolean; archived?: boolean }
 export interface Turn {
   id: string; uid: string; conv: string;
   ts: string; // ISO UTC, when the user sent the message
