@@ -149,7 +149,9 @@
     </nav>
     <div class="settings-panels">
       <section class="settings-panel" id="panel-general" role="tabpanel" aria-labelledby="tab-general">
-        <div class="setting-row"><div><div class="setting-name">Timezone</div><div class="setting-help">Resolved automatically from this browser.</div></div><span class="setting-value" id="tzSetting">—</span></div>
+        <div class="setting-row"><div><div class="setting-name">Timezone</div><div class="setting-help">Auto follows this browser. Pin an IANA zone to override it for date resolution.</div></div><span class="setting-value setting-control"><select id="tzSelect" aria-label="Timezone override"></select></span></div>
+        <div class="setting-row"><div><div class="setting-name">Provider</div><div class="setting-help">Local status only. Keys are never shown.</div></div><span class="setting-value" id="providerSetting">Checking...</span></div>
+        <div class="setting-row"><div><div class="setting-name">Models</div><div class="setting-help">Main answers and fast claim extraction.</div></div><span class="setting-value" id="modelSetting">Checking...</span></div>
         <div class="setting-row"><div><div class="setting-name">Keyboard shortcuts</div><div class="setting-help">See every shortcut available.</div></div><button class="button" id="openShortcuts" type="button">View</button></div>
         <div class="setting-row"><div><div class="setting-name">About</div><div class="setting-help">Minimi keeps the dates of what you ask and checks whether the answer still holds.</div></div><span class="setting-value">v0.1</span></div>
       </section>

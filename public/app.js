@@ -25,8 +25,9 @@ const confirmTitle = $('#confirmTitle');
 const confirmBody = $('#confirmBody');
 const confirmOk = $('#confirmOk');
 
-const tzRaw = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-const tz = tzRaw === 'Asia/Calcutta' ? 'Asia/Kolkata' : tzRaw;
+const browserTzRaw = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+const browserTz = browserTzRaw === 'Asia/Calcutta' ? 'Asia/Kolkata' : browserTzRaw;
+let tz = browserTz;
 const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const pad = (n) => String(n).padStart(2, '0');
@@ -76,6 +77,7 @@ const DEFAULT_SETTINGS = {
   enterSend: true,
   timestamps: true,
   railHidden: false,
+  tz: '',
 };
 const ACCENTS = {
   ox: { light: '#8a3030', dark: '#d58d80', softLight: '#f0ded6', softDark: '#33211f' },
@@ -141,17 +143,47 @@ function applySettings() {
   if (enterToSend) enterToSend.checked = settings.enterSend !== false;
   const showTimestamps = $('#showTimestamps');
   if (showTimestamps) showTimestamps.checked = settings.timestamps !== false;
-  const tzSetting = $('#tzSetting');
-  if (tzSetting) tzSetting.textContent = `${tz} · UTC${offsetLabel()}`;
+  tz = settings.tz || browserTz;
+  const tzSelect = $('#tzSelect');
+  if (tzSelect && tzSelect.value !== (settings.tz || '')) tzSelect.value = settings.tz || '';
   applyRail();
 }
 
-function offsetLabel() {
-  const offset = -new Date().getTimezoneOffset();
-  const sign = offset >= 0 ? '+' : '-';
-  const h = Math.floor(Math.abs(offset) / 60);
-  const m = Math.abs(offset) % 60;
-  return `${sign}${pad(h)}:${pad(m)}`;
+function tzOffsetLabel(zone = tz) {
+  try {
+    const part = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'longOffset' })
+      .formatToParts(new Date()).find((p) => p.type === 'timeZoneName');
+    return (part?.value || 'GMT').replace('GMT', 'UTC').replace('UTC', 'UTC ');
+  } catch {
+    return 'UTC';
+  }
+}
+
+function fillTimezones() {
+  const select = $('#tzSelect');
+  if (!select) return;
+  const auto = el('option', '', `Auto - ${browserTz} (${tzOffsetLabel(browserTz).trim()})`);
+  auto.value = '';
+  select.append(auto);
+  const zones = new Set([browserTz, tz, 'UTC']);
+  try {
+    for (const zone of Intl.supportedValuesOf('timeZone')) zones.add(zone);
+  } catch {
+    for (const zone of ['Asia/Kolkata', 'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'Asia/Singapore', 'Asia/Tokyo', 'Australia/Sydney']) zones.add(zone);
+  }
+  for (const zone of [...zones].sort()) {
+    const option = el('option', '', zone);
+    option.value = zone;
+    select.append(option);
+  }
+  select.value = settings.tz || '';
+  select.addEventListener('change', () => {
+    settings.tz = select.value;
+    saveSettings();
+    applySettings();
+    tick();
+    toast(settings.tz ? `Timezone set to ${settings.tz}.` : 'Timezone follows this browser.');
+  });
 }
 
 function setTheme(mode) {
@@ -320,6 +352,8 @@ let recallDraft = '';
 let ac = null;
 let stick = true;
 let unread = 0;
+let sourceSeen = new Set();
+let pendingEdit = null;
 const deletingIds = new Set();
 let drafts = {};
 try { drafts = JSON.parse(getStore('minimi-drafts') || '{}') || {}; } catch {}
@@ -584,6 +618,8 @@ async function patchConv(id, patch) {
 function newChat(focus = true) {
   saveDraft();
   if (busy) stopGeneration();
+  cancelEdit(false);
+  sourceSeen = new Set();
   conv = uuid();
   setStore('minimi-conv', conv);
   historySeq++;
@@ -608,6 +644,8 @@ function switchTo(id) {
   if (!id) return;
   saveDraft();
   if (busy) stopGeneration();
+  cancelEdit(false);
+  sourceSeen = new Set();
   conv = id;
   setStore('minimi-conv', id);
   fallbackTitle = '';
@@ -725,6 +763,55 @@ function addUser(text, ts) {
   return msg;
 }
 
+function setComposerHint(text) {
+  const hint = $('#composerHint');
+  if (!hint) return;
+  hint.textContent = text || (isNarrow() ? 'Enter adds a line · send with the button' : '↑ recalls · Enter sends · Shift+Enter new line');
+}
+
+function cancelEdit(restore = true) {
+  if (!pendingEdit) return;
+  const previous = pendingEdit.previous || '';
+  pendingEdit = null;
+  if (restore) {
+    q.value = previous;
+    sizeQ();
+    syncSend();
+    if (conv && previous.trim()) {
+      drafts[conv] = previous;
+      persistDrafts();
+    }
+  }
+  setComposerHint();
+}
+
+function beginEdit({ userNode, prompt, turnId, bot, previous }) {
+  if (busy) return;
+  if (pendingEdit) cancelEdit(true);
+  pendingEdit = { userNode, prompt, turnId, bot, previous: previous || '' };
+  q.value = prompt;
+  sizeQ();
+  syncSend();
+  q.focus();
+  q.setSelectionRange(q.value.length, q.value.length);
+  setComposerHint('Editing turn · Enter resends · Esc cancels');
+}
+
+function attachUserActions(userNode, getPrompt, getTurnId, getBot, isLast) {
+  if (!isLast) return;
+  const actions = el('div', 'msg-actions');
+  actions.append(actionButton('Edit', () => {
+    beginEdit({
+      userNode,
+      prompt: getPrompt(),
+      turnId: getTurnId(),
+      bot: getBot(),
+      previous: drafts[conv] || '',
+    });
+  }));
+  userNode.append(actions);
+}
+
 function addBot() {
   const msg = el('article', 'msg bot');
   const avatar = el('div', 'avatar');
@@ -750,9 +837,16 @@ function addBot() {
   claims.append(claimsLabel, claimList);
   const sources = el('section', 'sources');
   sources.hidden = true;
+  const srcHead = el('div', 'src-head');
   const srcLabel = el('div', 'sec-label', 'Sources');
+  const srcCopy = el('button', 'src-copy', 'Copy sources');
+  srcCopy.type = 'button';
+  srcHead.append(srcLabel, srcCopy);
   const srcList = el('ol', 'src-list');
-  sources.append(srcLabel, srcList);
+  const srcNote = el('div', 'src-note');
+  srcNote.hidden = true;
+  const srcChecked = el('div', 'src-checked');
+  sources.append(srcHead, srcList, srcNote, srcChecked);
   const meta = el('div', 'msg-meta');
   const trace = el('details', 'trace');
   trace.hidden = true;
@@ -764,7 +858,7 @@ function addBot() {
   content.append(byline, working, body, claims, sources, meta, trace, actions);
   msg.append(avatar, content);
   wrap.append(msg);
-  return { msg, avatar, content, byline, who, sep, resolved, working, typing, status, body, claims, claimsLabel, claimList, sources, srcLabel, srcList, meta, trace, summary, traceBody, actions, rawText: '', firstText: false, userNode: null, turnId: '' };
+  return { msg, avatar, content, byline, who, sep, resolved, working, typing, status, body, claims, claimsLabel, claimList, sources, srcHead, srcLabel, srcCopy, srcList, srcNote, srcChecked, meta, trace, summary, traceBody, actions, rawText: '', firstText: false, userNode: null, turnId: '' };
 }
 
 function addNote(b, key, value) {
@@ -794,6 +888,19 @@ function setResolved(b, context) {
   if (context.now) addNote(b, 'now', `${context.now} · ${context.tz || tz}`);
   for (const r of bits) addNote(b, 'date', `“${r.phrase}” · ${r.date}${r.alt ? ` or ${r.alt}` : ''}`);
   for (const m of (context.matched || [])) addNote(b, 'recall', `${m.date} · “${m.user}”`);
+  const matched = Array.isArray(context.matched) ? context.matched : [];
+  const prior = b.resolved.hidden ? '' : b.resolved.textContent.trim();
+  const memory = [];
+  if (context.explain) memory.push(context.explain);
+  else if (matched.length) memory.push(`Recalled ${matched.length} earlier turn${matched.length === 1 ? '' : 's'}`);
+  if (context.noMatch) memory.push('No matching earlier turn');
+  if (memory.length) {
+    b.resolved.hidden = false;
+    b.sep.hidden = false;
+    b.resolved.textContent = [prior, ...memory].filter(Boolean).join(' · ');
+  }
+  if (context.explain) addNote(b, 'memory', context.explain);
+  if (context.trimmed) addNote(b, 'context', `${context.trimmed} older turn${context.trimmed === 1 ? '' : 's'} compressed${context.summarized != null ? ` (${context.summarized} shown)` : ''}`);
   if (context.noMatch) addNote(b, 'recall', 'No matching history');
   if (context.recheck) addNote(b, 'recheck', `${context.prefetch} earlier claim${context.prefetch === 1 ? '' : 's'} pre-checked`);
 }
@@ -823,18 +930,84 @@ function renderClaims(b, claims) {
   b.claimsLabel.textContent = `Claims logged · ${claims.length}`;
 }
 
-function renderSources(b, sources, text) {
+function sourceQuality(url, title = '') {
+  const host = hostOf(url).toLowerCase();
+  const text = String(title).toLowerCase();
+  if (/^(docs|developer|developers|support|help)\./.test(host) || /(^|\.)(github\.com|npmjs\.com|pypi\.org)$/.test(host) || /(changelog|release|documentation|docs)/.test(text)) return 'primary';
+  if (/(news|blog|medium|substack|reddit|quora|verge|techcrunch|wired)/.test(host) || /(news|announcement)/.test(text)) return 'news';
+  if (/(blog|medium|substack)/.test(host)) return 'blog';
+  return 'web';
+}
+
+function sourceFreshness(published) {
+  if (!published) return 'undated';
+  const date = new Date(`${published}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return 'undated';
+  const days = Math.floor((Date.now() - date.getTime()) / 86400000);
+  if (days < 0) return `dated ${dateShort(date)} ${date.getFullYear()}`;
+  if (days <= 90) return `fresh · ${dateShort(date)}`;
+  if (days <= 730) return `updated ${dateShort(date)} ${date.getFullYear()}`;
+  return `older · ${dateShort(date)} ${date.getFullYear()}`;
+}
+
+async function checkSource(button, li, b, source) {
+  button.disabled = true;
+  const label = button.textContent;
+  button.textContent = 'Checking';
+  button.removeAttribute('data-state');
+  try {
+    const r = await fetch('/api/source-check', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: source.url }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const result = await r.json();
+    li.dataset.link = result.ok ? 'ok' : 'bad';
+    button.dataset.state = result.ok ? 'ok' : 'bad';
+    button.textContent = result.ok ? 'Reachable' : 'Unavailable';
+    li.querySelector('.src-retry').hidden = !!result.ok;
+    b.srcChecked.textContent = `Last checked ${dateStr(new Date())} ${timeStr(new Date())}.`;
+    if (!result.ok) toast(`Source unavailable${result.status ? ` (HTTP ${result.status})` : ''}. Re-search is available.`, { type: 'error' });
+  } catch (e) {
+    li.dataset.link = 'bad';
+    button.dataset.state = 'bad';
+    button.textContent = 'Check failed';
+    li.querySelector('.src-retry').hidden = false;
+    toast(`Could not check source: ${e.message}`, { type: 'error' });
+  } finally {
+    button.disabled = false;
+    if (button.dataset.state !== 'ok' && button.dataset.state !== 'bad') button.textContent = label;
+  }
+}
+
+function renderSources(b, sources, text, seen = sourceSeen, checkedAt = new Date()) {
   if (!Array.isArray(sources) || !sources.length) {
     b.sources.hidden = true;
+    b.currentSources = [];
     return;
   }
   const cited = sources.filter((s) => new RegExp(`\\[${s.id}\\]`).test(text || ''));
   const list = cited.length ? cited : sources;
+  const unique = list.filter((s) => safeUrl(s.url) && !seen.has(s.url));
+  const duplicates = list.length - unique.length;
+  b.currentSources = list;
   b.sources.hidden = false;
-  b.srcLabel.textContent = cited.length ? `Sources · ${list.length}` : `Sources · ${list.length} · not cited inline`;
+  b.srcLabel.textContent = `Sources · ${unique.length}${duplicates ? ` · ${duplicates} seen earlier` : ''}${cited.length ? '' : ' · not cited inline'}`;
   b.srcList.innerHTML = '';
-  for (const s of list) {
+  b.srcList.hidden = unique.length === 0;
+  b.srcNote.hidden = duplicates === 0;
+  b.srcNote.textContent = unique.length
+    ? `${duplicates} source${duplicates === 1 ? '' : 's'} already listed earlier in this chat.`
+    : 'All sources for this answer were already listed earlier in this chat.';
+  b.srcCopy.textContent = list.length === 1 ? 'Copy source' : `Copy ${list.length} sources`;
+  b.srcCopy.onclick = async () => {
+    const ok = await copyText(list.map((s) => `[${s.id}] ${s.title || hostOf(s.url)} - ${s.url}`).join('\n'));
+    toast(ok ? 'Source list copied.' : 'Could not copy the source list.', { type: ok ? 'info' : 'error' });
+  };
+  for (const s of unique) {
     const li = el('li', 'src');
+    li.dataset.url = s.url;
     li.append(el('span', 'src-num', `[${s.id}]`));
     const body = el('div');
     const a = el('a', '', s.title || hostOf(s.url));
@@ -843,12 +1016,26 @@ function renderSources(b, sources, text) {
     a.rel = 'noopener noreferrer';
     a.title = s.title || s.url || '';
     body.append(a);
-    body.append(el('div', 'src-meta', `${hostOf(s.url)}${s.published ? ` · ${s.published}` : ''}`));
+    body.append(el('div', 'src-meta', `${hostOf(s.url)} · ${sourceQuality(s.url, s.title)} · ${sourceFreshness(s.published)}`));
+    const actions = el('div', 'src-actions');
+    const check = el('button', 'src-check', 'Check link');
+    check.type = 'button';
+    check.addEventListener('click', () => checkSource(check, li, b, s));
+    const retry = el('button', 'src-retry', 'Re-search');
+    retry.type = 'button';
+    retry.hidden = true;
+    retry.addEventListener('click', () => {
+      if (busy) return;
+      ask(`This source is unavailable: ${s.title || hostOf(s.url)} (${s.url}). Find a current replacement and re-check the related claim.`);
+    });
+    actions.append(check, retry);
+    body.append(actions);
     li.append(body, icon(EXT, 13));
     b.srcList.append(li);
   }
+  const d = parseTs(checkedAt);
+  b.srcChecked.textContent = `Source links checked ${dateStr(d)}. Use Check link for current status.`;
 }
-
 function metaParts(base, extra = []) {
   const parts = [];
   if (settings.timestamps !== false && base) parts.push(base);
@@ -881,7 +1068,7 @@ function actionButton(label, onClick, opts = {}) {
   return b;
 }
 
-function addActions(b, getText, getPrompt, turnId) {
+function addActions(b, getText, getPrompt, turnId, isLast = false) {
   b.actions.hidden = false;
   b.actions.innerHTML = '';
   b.actions.append(actionButton('Copy', async () => {
@@ -893,9 +1080,32 @@ function addActions(b, getText, getPrompt, turnId) {
     const prompt = getPrompt();
     if (prompt) ask(prompt);
   }));
+  if (isLast && turnId) {
+    b.actions.append(actionButton('Regenerate', () => regenerate(b, getPrompt())));
+  }
   if (turnId) {
     b.actions.append(actionButton('Delete', () => deleteTurn(b, turnId), { danger: true }));
   }
+}
+
+async function regenerate(b, prompt) {
+  if (busy || !prompt) return;
+  if (b.turnId) {
+    try {
+      const r = await fetch(`/api/turns/${encodeURIComponent(b.turnId)}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error(`Delete failed (${r.status})`);
+      b.userNode?.remove();
+      b.msg.remove();
+      sourceSeen = new Set($$('.src').map((li) => li.dataset.url).filter(Boolean));
+      toast('Regenerating the last answer.');
+      loadConversations(true);
+    } catch (e) {
+      toast(`Could not regenerate: ${e.message}`, { type: 'error' });
+      return;
+    }
+  }
+  if (!wrap.querySelector('.msg')) emptyState();
+  ask(prompt);
 }
 
 function emptyState() {
@@ -976,7 +1186,10 @@ async function loadHistory() {
     }
     let day = '';
     let previousUser = null;
-    for (const t of hist) {
+    sourceSeen = new Set();
+    for (let i = 0; i < hist.length; i++) {
+      const t = hist[i];
+      const isLast = i === hist.length - 1;
       const d = parseTs(t.ts);
       const key = isoDate(d);
       if (key !== day) {
@@ -994,9 +1207,11 @@ async function loadHistory() {
       const src = Object.fromEntries((t.sources || []).map((s) => [s.id, s]));
       b.body.innerHTML = formatRich(b.rawText || '(no answer)', src);
       b.meta.textContent = historyMeta(t);
-      renderSources(b, t.sources || [], b.rawText);
+      renderSources(b, t.sources || [], b.rawText, sourceSeen, t.ts);
+      for (const s of (t.sources || [])) if (s.url) sourceSeen.add(s.url);
       renderClaims(b, t.claims || []);
-      addActions(b, () => b.rawText, () => t.user, b.turnId);
+      addActions(b, () => b.rawText, () => t.user, b.turnId, isLast);
+      attachUserActions(user, () => t.user, () => b.turnId, () => b, isLast);
       previousUser = user;
     }
     const last = hist[hist.length - 1];
@@ -1284,12 +1499,30 @@ function showError(b, message, onRetry) {
   live.textContent = 'Something went wrong.';
 }
 
-async function ask(message) {
+async function ask(message, edit = null) {
   const textMessage = String(message || '').trim();
   if (!textMessage || busy) return;
   if (!navigator.onLine) {
     toast('You are offline. Reconnect to send messages.', { type: 'error' });
     return;
+  }
+  if (edit) {
+    if (edit.turnId) {
+      try {
+        const r = await fetch(`/api/turns/${encodeURIComponent(edit.turnId)}`, { method: 'DELETE' });
+        if (!r.ok && r.status !== 404) throw new Error(`Delete failed (${r.status})`);
+      } catch (e) {
+        toast(`Could not edit this turn: ${e.message}`, { type: 'error' });
+        return;
+      }
+    }
+    edit.userNode?.remove();
+    edit.bot?.msg.remove();
+    pendingEdit = null;
+    setComposerHint();
+    sourceSeen = new Set($$('.src').map((li) => li.dataset.url).filter(Boolean));
+    loadConversations(true);
+    if (!wrap.querySelector('.msg')) emptyState();
   }
   setBusy(true);
   ac = new AbortController();
@@ -1319,6 +1552,7 @@ async function ask(message) {
   b.rawText = '';
   addActions(b, () => b.rawText, () => textMessage, '');
   b.actions.hidden = true;
+  attachUserActions(userNode, () => textMessage, () => b.turnId, () => b, true);
   scrollBottom(true);
   refreshHeader();
   const retry = () => {
@@ -1347,7 +1581,10 @@ async function ask(message) {
         b.body.append(el('div', 'stopped', 'Stopped before an answer arrived'));
       }
       b.meta.textContent = metaParts(timeStr(new Date()));
-      addActions(b, () => b.rawText || text, () => textMessage, b.turnId);
+      renderSources(b, Object.values(sources), text);
+      for (const s of Object.values(sources)) if (s.url) sourceSeen.add(s.url);
+      addActions(b, () => b.rawText || text, () => textMessage, b.turnId, true);
+      live.textContent = 'Generation stopped.';
     }
     if (!isMobile() && document.visibilityState === 'visible' && !document.querySelector('dialog[open]') && !document.body.classList.contains('nav-open')) q.focus();
     loadConversations(true);
@@ -1366,6 +1603,7 @@ async function ask(message) {
     else if (e.type === 'status') {
       setStatus(b, e.text);
       addNote(b, 'search', e.text);
+      live.textContent = e.text;
     } else if (e.type === 'sources') {
       for (const s of e.sources || []) sources[s.id] = s;
       if (text) flush();
@@ -1373,6 +1611,7 @@ async function ask(message) {
       if (!b.firstText) {
         b.firstText = true;
         b.working.hidden = true;
+        live.textContent = 'Answer streaming.';
       }
       text += e.delta || '';
       b.rawText = text;
@@ -1384,12 +1623,16 @@ async function ask(message) {
       b.rawText = text;
       b.meta.textContent = liveMeta(e);
       renderSources(b, Object.values(sources), text);
-      addActions(b, () => b.rawText, () => textMessage, b.turnId);
-      live.textContent = 'Answer ready.';
+      for (const s of Object.values(sources)) if (s.url) sourceSeen.add(s.url);
+      addActions(b, () => b.rawText, () => textMessage, b.turnId, true);
+      const srcCount = Object.keys(sources).length;
+      live.textContent = `Answer ready. ${srcCount} source${srcCount === 1 ? '' : 's'} available.`;
       scrollBottom();
       finish();
     } else if (e.type === 'claims') {
       renderClaims(b, e.claims);
+      const count = Array.isArray(e.claims) ? e.claims.length : 0;
+      live.textContent = `Answer ready. ${count} claim${count === 1 ? '' : 's'} logged for later checking.`;
     } else if (e.type === 'error') {
       showError(b, e.message, retry);
       finish();
@@ -1425,7 +1668,7 @@ async function ask(message) {
         b.rawText = text;
         renderSources(b, Object.values(sources), text);
         b.meta.textContent = metaParts(timeStr(new Date()));
-        addActions(b, () => b.rawText, () => textMessage, b.turnId);
+        addActions(b, () => b.rawText, () => textMessage, b.turnId, true);
         showError(b, 'The stream ended before the answer finished.', retry);
       } else {
         showError(b, 'The stream ended before an answer arrived.', retry);
@@ -1472,6 +1715,11 @@ window.addEventListener('pagehide', saveDraft);
 
 q?.addEventListener('keydown', (e) => {
   if (e.isComposing) return;
+  if (e.key === 'Escape' && pendingEdit) {
+    e.preventDefault();
+    cancelEdit(true);
+    return;
+  }
   if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
     if (settings.enterSend !== false && !isNarrow()) {
       e.preventDefault();
@@ -1521,7 +1769,7 @@ $('#f')?.addEventListener('submit', (e) => {
     return;
   }
   const message = q.value.trim();
-  if (message) ask(message);
+  if (message) ask(message, pendingEdit);
 });
 
 const pop = el('div', 'pop');
@@ -1577,10 +1825,33 @@ wrap?.addEventListener('click', async (e) => {
   }
 });
 
+async function loadStatus() {
+  const provider = $('#providerSetting');
+  const models = $('#modelSetting');
+  try {
+    const r = await fetch('/api/status', { cache: 'no-store' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const status = await r.json();
+    if (provider) {
+      provider.textContent = `${status.provider || 'provider'} · ${status.configured?.model ? 'ready' : 'key missing'} · ${status.search || 'search'}`;
+      provider.title = `${status.auth || 'auth seam'} · ${status.configured?.search ? 'search key set' : 'search key missing'}`;
+    }
+    if (models) {
+      models.textContent = `${status.models?.main || 'main'} · fast ${status.models?.fast || 'fast'}`;
+      models.title = `Message limit ${status.limits?.messageChars || 4000} · ${status.limits?.turnsPerConversation || 200} turns per chat`;
+    }
+  } catch (e) {
+    if (provider) provider.textContent = 'Status unavailable';
+    if (models) models.textContent = 'Status unavailable';
+    if (provider) provider.title = e.message;
+  }
+}
+
 function openSettings(tab = 'general') {
   if (!settingsDialog) return;
   selectSettingsTab(tab);
   if (!settingsDialog.open) settingsDialog.showModal();
+  loadStatus();
 }
 
 function selectSettingsTab(tab) {
@@ -1708,6 +1979,11 @@ document.addEventListener('keydown', (e) => {
     }
     closeMenu();
     hidePop();
+    if (pendingEdit) {
+      e.preventDefault();
+      cancelEdit(true);
+      return;
+    }
     if (busy) {
       e.preventDefault();
       stopGeneration();
@@ -1755,9 +2031,12 @@ function tick() {
 }
 setInterval(tick, 1000);
 
+fillTimezones();
 applySettings();
+setComposerHint();
 tick();
 updateOnline();
+loadStatus();
 syncRail();
 loadDraft();
 refreshHeader();

@@ -14,6 +14,8 @@ export interface Ctx {
   resolved: Resolved[];
   matches: Match[];
   live: Turn[];
+  olderSummary: string;
+  olderCount: number;
   noMatch: boolean;
   prefetch: Claim[];
   trace: unknown;
@@ -28,7 +30,15 @@ export function buildContext(store: Store, req: Req): Ctx {
   const resolved = resolveDates(message, now, tz, personalPast);
   const dates = resolved.flatMap((r) => [r.date, r.alt].filter(Boolean) as string[]);
 
-  const live = store.conv(uid, conv).slice(-10);
+  const all = store.conv(uid, conv);
+  const live = all.slice(-10);
+  const older = all.slice(0, Math.max(0, all.length - 10));
+  const summaryTurns = older.slice(-24);
+  const olderSummary = summaryTurns.map((t) => {
+    const day = isoDate(new Date(t.ts), tz);
+    const claims = t.claims.map((c) => `${c.entity}: ${c.claim}`).join('; ');
+    return `- ${day}: asked "${t.user.replace(/\s+/g, ' ').slice(0, 180)}"; answered "${t.assistant.replace(/\s+/g, ' ').slice(0, 260)}"${claims ? `; claims: ${claims.slice(0, 320)}` : ''}`;
+  }).join('\n');
   const liveIds = new Set(live.map((t) => t.id));
   const found = retrieve(store.all(uid), message, dates, tz);
   const matches: Match[] = found.map((t) => {
@@ -51,13 +61,21 @@ export function buildContext(store: Store, req: Req): Ctx {
         prefetch.push({ ...c, as_of });
       }
 
+  const explain = matches.length
+    ? `Matched ${matches.length} earlier turn${matches.length === 1 ? '' : 's'} by ${dates.length ? 'date and topic' : 'topic'} keywords.`
+    : personalPast
+      ? 'No earlier turn matched the dates or topic words in this message.'
+      : 'No earlier turn was needed for this message.';
   return {
-    now: isoDateTime(now, tz), today, tz, resolved, matches, live, noMatch,
+    now: isoDateTime(now, tz), today, tz, resolved, matches, live, olderSummary, olderCount: older.length, noMatch,
     prefetch: prefetch.slice(0, 6),
     trace: {
       now: isoDateTime(now, tz), tz,
       resolved: resolved.map((r) => ({ phrase: r.phrase, date: r.date, alt: r.alt })),
       matched: matches.map((m) => ({ id: m.turn.id, date: m.date, user: m.turn.user.slice(0, 70) })),
+      explain,
+      trimmed: older.length,
+      summarized: summaryTurns.length,
       recheck: wantsRecheck, prefetch: Math.min(prefetch.length, 6), noMatch,
     },
   };

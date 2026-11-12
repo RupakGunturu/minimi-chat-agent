@@ -1,5 +1,5 @@
 {
-  "name": "time-aware-chat-agent",
+  "name": "minimi",
   "private": true,
   "type": "module",
   "engines": {
@@ -10,7 +10,12 @@
     "start": "tsx src/server.ts",
     "seed": "tsx scripts/seed.ts",
     "eval": "tsx eval/run.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:client": "node --check public/app.js",
+    "test": "node --import tsx --test tests/api.test.ts",
+    "test:api": "node --import tsx --test tests/api.test.ts",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm run check:client && npm test"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
@@ -21,6 +26,7 @@
     "tsx": "^4.19.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
   }
