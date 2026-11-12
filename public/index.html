@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Time-aware agent</title>
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--ink:#16181d;--mute:#667085;--line:#e3e6ec;--accent:#1f4fd8;--me:#eaf0ff;--code:#f0f2f6}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--panel:#161922;--ink:#e8eaf0;--mute:#8b93a7;--line:#262b38;--accent:#7fa2ff;--me:#1b2644;--code:#1d2230}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column}
+header{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+header b{font-weight:650}
+button{font:inherit;color:inherit;cursor:pointer}
+.ghost{background:none;border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--mute)}
+.ghost:hover,.chip:hover{border-color:var(--accent);color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#log{flex:1;overflow-y:auto;padding:24px 16px}
+.wrap{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+.msg{max-width:100%}
+.me{align-self:flex-end;background:var(--me);padding:9px 14px;border-radius:14px;max-width:85%;white-space:pre-wrap}
+.bot .body{overflow-wrap:anywhere}
+.trace{font-size:12.5px;color:var(--mute);border-left:2px solid var(--line);padding-left:10px;margin-bottom:8px}
+.trace div+div{margin-top:2px}
+.trace .t{color:var(--accent)}
+.meta{font-size:12px;color:var(--mute);margin-top:8px}
+details{font-size:13px;margin-top:8px;color:var(--mute)}
+details a{color:var(--accent);text-decoration:none}
+details li{margin:2px 0}
+a.c{font-size:11px;vertical-align:super;color:var(--accent);text-decoration:none;padding:0 1px}
+.body table{border-collapse:collapse;margin:8px 0;display:block;overflow-x:auto}
+.body td,.body th{border:1px solid var(--line);padding:5px 10px;text-align:left}
+.body th{background:var(--code)}
+.body code,.body pre{background:var(--code);border-radius:6px}
+.body code{padding:1px 5px}.body pre{padding:10px;overflow-x:auto}
+.body ul{margin:6px 0;padding-left:22px}
+.empty{color:var(--mute);text-align:center;margin-top:12vh}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px}
+.chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 14px;color:var(--ink);font-size:13.5px}
+form{padding:12px 16px 18px;background:var(--bg)}
+.row{max-width:720px;margin:0 auto;display:flex;gap:8px;align-items:flex-end;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:8px}
+textarea{flex:1;resize:none;border:0;background:none;color:inherit;font:inherit;max-height:160px;padding:6px 8px;outline:none}
+#send{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:8px 16px;font-weight:600}
+#send:disabled{opacity:.5;cursor:default}
+@media (prefers-reduced-motion:no-preference){#log{scroll-behavior:smooth}}
+</style>
+</head>
+<body>
+<header><b>Time-aware agent</b><button class="ghost" id="new">New chat</button></header>
+<div id="log"><div class="wrap" id="wrap"></div></div>
+<form id="f"><div class="row">
+  <textarea id="q" rows="1" placeholder="Ask anything. Try: what did I ask on 3 November?" aria-label="Message"></textarea>
+  <button id="send" type="submit">Send</button>
+</div></form>
+<script>
+const $ = (s) => document.querySelector(s);
+const wrap = $('#wrap'), log = $('#log'), q = $('#q'), send = $('#send');
+const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+let conv = localStorage.getItem('conv') || (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
+localStorage.setItem('conv', conv);
+
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const safeUrl = (u) => (/^https?:\/\//i.test(u) ? esc(u) : '#');
+
+function table(block) {
+  const rows = block.trim().split('\n').map((r) => r.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim()));
+  const body = rows.filter((r) => !r.every((c) => /^:?-{2,}:?$/.test(c)));
+  return '<table>' + body.map((r, ri) => '<tr>' + r.map((c) => `<${ri ? 'td' : 'th'}>${c}</${ri ? 'td' : 'th'}>`).join('') + '</tr>').join('') + '</table>';
+}
+function md(text, src) {
+  let h = esc(text);
+  h = h.replace(/```[\w-]*\n?([\s\S]*?)```/g, (_, c) => `<pre>${c.trim()}</pre>`);
+  h = h.replace(/((?:^\|.*\|[ \t]*\n?)+)/gm, (b) => table(b));
+  h = h.replace(/^#{1,4} (.+)$/gm, '<b>$1</b>').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  h = h.replace(/(?:^[ \t]*[-*] .+\n?)+/gm, (m) => '<ul>' + m.trim().split('\n').map((l) => '<li>' + l.replace(/^[ \t]*[-*] /, '') + '</li>').join('') + '</ul>');
+  h = h.replace(/\[(\d+)\]/g, (m, n) => (src[n] ? `<a class="c" href="${safeUrl(src[n].url)}" target="_blank" rel="noopener" title="${esc(src[n].title)}">${n}</a>` : m));
+  return h.replace(/\n{2,}/g, '<br><br>').replace(/\n/g, '<br>').replace(/(<\/(?:ul|table|pre)>)<br>/g, '$1');
+}
+
+function addUser(t) { const d = document.createElement('div'); d.className = 'msg me'; d.textContent = t; wrap.append(d); }
+function addBot() {
+  const d = document.createElement('div'); d.className = 'msg bot';
+  d.innerHTML = '<div class="trace" hidden></div><div class="body"></div><details hidden><summary></summary><ol></ol></details><div class="meta"></div>';
+  wrap.append(d);
+  return { d, trace: d.querySelector('.trace'), body: d.querySelector('.body'), det: d.querySelector('details'), meta: d.querySelector('.meta') };
+}
+function renderSources(b, sources, text) {
+  const cited = sources.filter((s) => new RegExp('\\[' + s.id + '\\]').test(text));
+  if (!cited.length) return;
+  b.det.hidden = false;
+  b.det.querySelector('summary').textContent = `${cited.length} source${cited.length > 1 ? 's' : ''}`;
+  b.det.querySelector('ol').innerHTML = cited.map((s) => `<li value="${s.id}"><a href="${safeUrl(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>${s.published ? ' · ' + s.published : ''}</li>`).join('');
+}
+const addTrace = (b, html) => { b.trace.hidden = false; const x = document.createElement('div'); x.innerHTML = html; b.trace.append(x); return x; };
+const scroll = () => { log.scrollTop = log.scrollHeight; };
+
+function empty() {
+  wrap.innerHTML = '<div class="empty"><div>Ask about anything current. It also remembers earlier chats by date.</div><div class="chips"></div></div>';
+  const prompts = ['What did I ask you on 3 November? Is your answer still correct today?', 'Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?', 'On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing or shipped something big since?'];
+  for (const p of prompts) { const c = document.createElement('button'); c.className = 'chip'; c.textContent = p.length > 60 ? p.slice(0, 57) + '…' : p; c.onclick = () => ask(p); wrap.querySelector('.chips').append(c); }
+}
+
+async function ask(message) {
+  if (send.disabled) return;
+  if (wrap.querySelector('.empty')) wrap.innerHTML = '';
+  send.disabled = true; q.value = ''; q.style.height = 'auto';
+  addUser(message);
+  const b = addBot(); let text = '', sources = {}, raf = 0, statusEl = null;
+  const paint = () => { raf = 0; b.body.innerHTML = md(text, sources); scroll(); };
+  scroll();
+  try {
+    const r = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, conv, tz }) });
+    if (!r.ok || !r.body) throw new Error('Request failed (' + r.status + ')');
+    const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '';
+    const handle = (e) => {
+      if (e.type === 'context') {
+        const c = e.data, bits = [`now ${esc(c.now)} (${esc(c.tz)})`];
+        for (const x of c.resolved) bits.push(`<span class="t">“${esc(x.phrase)}”</span> → ${x.date}${x.alt ? ' (or ' + x.alt + ')' : ''}`);
+        addTrace(b, bits.join(' · '));
+        if (c.matched.length) addTrace(b, `found in history: ${c.matched.map((m) => m.date + ' “' + esc(m.user) + '”').join('; ')}`);
+        else if (c.noMatch) addTrace(b, 'nothing in history matches that reference');
+      } else if (e.type === 'status') { if (statusEl) statusEl.remove(); statusEl = addTrace(b, esc(e.text)); }
+      else if (e.type === 'sources') { sources = Object.fromEntries(e.sources.map((s) => [s.id, s])); }
+      else if (e.type === 'text') { if (statusEl) { statusEl.remove(); statusEl = null; } text += e.delta; if (!raf) raf = requestAnimationFrame(paint); }
+      else if (e.type === 'done') { paint(); renderSources(b, Object.values(sources), text); b.meta.textContent = `${e.ttftMs != null ? (e.ttftMs / 1000).toFixed(1) + 's to first token · ' : ''}${(e.totalMs / 1000).toFixed(1)}s total · ${e.searches} search${e.searches === 1 ? '' : 'es'}`; }
+      else if (e.type === 'error') { b.body.innerHTML += `<p>Something went wrong: ${esc(e.message)}</p>`; }
+    };
+    for (;;) {
+      const { done, value } = await rd.read(); if (done) break;
+      buf += dec.decode(value, { stream: true }); let i;
+      while ((i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (line) handle(JSON.parse(line)); }
+    }
+  } catch (err) { b.body.innerHTML = `<p>Something went wrong: ${esc(err.message)}</p>`; }
+  send.disabled = false; q.focus(); scroll();
+}
+
+$('#f').addEventListener('submit', (e) => { e.preventDefault(); const m = q.value.trim(); if (m) ask(m); });
+q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#f').requestSubmit(); } });
+q.addEventListener('input', () => { q.style.height = 'auto'; q.style.height = Math.min(q.scrollHeight, 160) + 'px'; });
+$('#new').onclick = () => { conv = crypto.randomUUID(); localStorage.setItem('conv', conv); empty(); q.focus(); };
+
+(async () => {
+  const hist = await fetch('/api/history?conv=' + encodeURIComponent(conv)).then((r) => r.json()).catch(() => []);
+  if (!hist.length) return empty();
+  for (const t of hist) {
+    addUser(t.user); const b = addBot(); const src = Object.fromEntries(t.sources.map((s) => [s.id, s]));
+    b.body.innerHTML = md(t.assistant, src); renderSources(b, t.sources, t.assistant);
+  }
+  scroll();
+})();
+</script>
+</body>
+</html>
