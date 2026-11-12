@@ -1,4 +1,4 @@
-import type Anthropic from '@anthropic-ai/sdk';
+import type OpenAI from 'openai';
 import { config } from './config.js';
 import type { Claim } from './types.js';
 
@@ -14,14 +14,17 @@ const valid = (c: any) => c && typeof c.entity === 'string' && typeof c.claim ==
 
 /** Runs after the answer is streamed and persisted, so it never adds user-visible latency. */
 export async function extractClaims(
-  anthropic: Anthropic, p: { user: string; answer: string; today: string },
+  llm: OpenAI, p: { user: string; answer: string; today: string },
 ): Promise<Claim[]> {
   try {
-    const r = await anthropic.messages.create({
-      model: config.modelFast, max_tokens: 800, system: PROMPT,
-      messages: [{ role: 'user', content: `TODAY: ${p.today}\nUSER: ${p.user}\nASSISTANT: ${p.answer}` }],
+    const r = await llm.chat.completions.create({
+      model: config.modelFast, max_tokens: 800,
+      messages: [
+        { role: 'system', content: PROMPT },
+        { role: 'user', content: `TODAY: ${p.today}\nUSER: ${p.user}\nASSISTANT: ${p.answer}` },
+      ],
     });
-    const text = r.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
+    const text = r.choices[0]?.message?.content ?? '';
     const m = text.match(/\{[\s\S]*\}/);
     if (!m) return [];
     const j = JSON.parse(m[0]);

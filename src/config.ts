@@ -4,8 +4,10 @@ const tzOk = (tz?: string) => { try { if (tz) new Intl.DateTimeFormat('en', { ti
 
 export const config = {
   port: Number(process.env.PORT ?? 3000),
-  modelMain: process.env.MODEL_MAIN || 'claude-sonnet-5-5',
-  modelFast: process.env.MODEL_FAST || 'claude-haiku-5-5',
+  llmBaseUrl: process.env.LLM_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai/',
+  llmApiKey: process.env.GEMINI_API_KEY || process.env.LLM_API_KEY || '',
+  modelMain: process.env.MODEL_MAIN || 'gemini-3.5-flash-lite',
+  modelFast: process.env.MODEL_FAST || 'gemini-3.5-flash-lite',
   defaultTz: tzOk(process.env.DEFAULT_TZ) ? process.env.DEFAULT_TZ! : Intl.DateTimeFormat().resolvedOptions().timeZone,
   maxSteps: 4,
   searchTtlMs: 15 * 60 * 1000,

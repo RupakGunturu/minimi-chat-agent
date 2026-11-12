@@ -2,7 +2,9 @@
   "name": "time-aware-chat-agent",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
@@ -11,11 +13,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "latest",
     "@hono/node-server": "^1.13.0",
     "chrono-node": "^2.7.7",
     "dotenv": "^16.4.5",
     "hono": "^4.6.0",
+    "openai": "^6.49.0",
     "tsx": "^4.19.0"
   },
   "devDependencies": {

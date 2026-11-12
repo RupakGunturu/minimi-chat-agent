@@ -1,6 +1,6 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { Hono } from 'hono';
 import { stream } from 'hono/streaming';
 import { runAgent } from './agent.js';
@@ -8,11 +8,12 @@ import { clock, config, validTz } from './config.js';
 import { makeSearch } from './search.js';
 import { Store } from './store.js';
 
-for (const k of ['ANTHROPIC_API_KEY', 'TAVILY_API_KEY'])
+for (const k of ['GEMINI_API_KEY', 'TAVILY_API_KEY'])
   if (!process.env[k]) console.warn(`⚠ ${k} is not set (copy .env.example to .env)`);
 
 const store = await new Store(config.dataFile).init();
-const deps = { store, search: makeSearch(), anthropic: new Anthropic() };
+const llm = new OpenAI({ apiKey: config.llmApiKey || 'not-set', baseURL: config.llmBaseUrl });
+const deps = { store, search: makeSearch(), llm };
 const app = new Hono();
 
 app.post('/api/chat', async (c) => {
@@ -31,7 +32,9 @@ app.post('/api/chat', async (c) => {
     s.onAbort(() => ac.abort());
     const emit = (e: unknown) => { s.write(JSON.stringify(e) + '\n').catch(() => {}); };
     try {
-      await runAgent(deps, { uid, conv, message, tz, now: clock() }, emit, ac.signal);
+      const result = await runAgent(deps, { uid, conv, message, tz, now: clock() }, emit, ac.signal);
+      const claims = await result.claimsDone.catch(() => []);
+      if (claims.length) emit({ type: 'claims', turnId: result.turn.id, claims });
     } catch (e) {
       if (!ac.signal.aborted) emit({ type: 'error', message: (e as Error).message });
     }
@@ -40,8 +43,24 @@ app.post('/api/chat', async (c) => {
 
 app.get('/api/history', (c) => {
   const turns = store.conv(c.req.header('x-user-id') || 'local', c.req.query('conv') || 'default');
-  return c.json(turns.map(({ id, ts, user, assistant, sources }) => ({ id, ts, user, assistant, sources })));
+  return c.json(turns.map(({ id, ts, user, assistant, sources, claims }) => ({ id, ts, user, assistant, sources, claims })));
+});
+
+app.get('/api/conversations', (c) => {
+  const uid = c.req.header('x-user-id') || 'local';
+  return c.json(store.conversations(uid));
 });
 
 app.use('/*', serveStatic({ root: './public' }));
-serve({ fetch: app.fetch, port: config.port }, (i) => console.log(`Agent on http://localhost:${i.port}`));
+const server = serve({ fetch: app.fetch, port: config.port }, (i) => console.log(`Agent on http://localhost:${i.port}`));
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(
+      `Port ${config.port} is already in use by another process.\n` +
+      `Stop it, or set PORT to a free port in .env (e.g. PORT=3001) and run again.`,
+    );
+    process.exit(1);
+  }
+  throw err;
+});

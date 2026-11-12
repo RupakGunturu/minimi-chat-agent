@@ -20,5 +20,6 @@ export type AgentEvent =
   | { type: 'status'; text: string }
   | { type: 'text'; delta: string }
   | { type: 'sources'; sources: Source[] }
+  | { type: 'claims'; turnId: string; claims: Claim[] }
   | { type: 'done'; turnId: string; ttftMs: number | null; totalMs: number; searches: number }
   | { type: 'error'; message: string };

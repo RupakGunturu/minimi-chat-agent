@@ -3,7 +3,7 @@
  * Stage 1 (always, no API keys): deterministic checks of the code that owns time + memory.
  * Stage 2 (when keys exist): runs the full agent per case and has a cheap model judge it against a rubric.
  */
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runAgent } from '../src/agent.js';
@@ -65,19 +65,19 @@ for (const k of cases) {
   console.log(`${err ? 'FAIL' : 'ok  '} ${k.id}${err ? ' — ' + err : ''}`);
 }
 
-if (process.env.ANTHROPIC_API_KEY && process.env.TAVILY_API_KEY) {
+if (process.env.GEMINI_API_KEY && process.env.TAVILY_API_KEY) {
   console.log('\nStage 2: end-to-end + LLM judge');
-  const anthropic = new Anthropic();
-  const deps = { store, search: makeSearch(), anthropic };
+  const llm = new OpenAI({ apiKey: config.llmApiKey || 'not-set', baseURL: config.llmBaseUrl });
+  const deps = { store, search: makeSearch(), llm };
   for (const k of cases) {
     let ans = '';
     const { turn } = await runAgent(deps, { uid: 'local', conv: 'eval-' + k.id, message: k.msg, tz: TZ, now: NOW },
       (e) => { if (e.type === 'text') ans += e.delta; if (e.type === 'done') (k as any).m = e; });
-    const j = await anthropic.messages.create({
+    const j = await llm.chat.completions.create({
       model: config.modelFast, max_tokens: 300,
       messages: [{ role: 'user', content: `Judge this assistant answer. Today is 2026-11-11.\nRUBRIC: ${k.rubric}\nUSER: ${k.msg}\nANSWER:\n${ans}\n\nReturn ONLY JSON {"pass":boolean,"reason":"one sentence"}` }],
     });
-    const txt = j.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
+    const txt = j.choices[0]?.message?.content ?? '';
     const v = JSON.parse(txt.match(/\{[\s\S]*\}/)![0]);
     const m = (k as any).m;
     if (!v.pass) failed++;
@@ -85,6 +85,6 @@ if (process.env.ANTHROPIC_API_KEY && process.env.TAVILY_API_KEY) {
     void turn;
   }
 } else {
-  console.log('\nStage 2 skipped (set ANTHROPIC_API_KEY and TAVILY_API_KEY).');
+  console.log('\nStage 2 skipped (set GEMINI_API_KEY and TAVILY_API_KEY).');
 }
 process.exit(failed ? 1 : 0);

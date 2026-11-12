@@ -1,4 +1,4 @@
-import type Anthropic from '@anthropic-ai/sdk';
+import type OpenAI from 'openai';
 import { randomUUID } from 'node:crypto';
 import { extractClaims } from './claims.js';
 import { config } from './config.js';
@@ -8,21 +8,27 @@ import type { Store } from './store.js';
 import { isoDate, isoDateTime } from './time.js';
 import type { AgentEvent, Hit, SearchFn, Source, Turn } from './types.js';
 
-export interface Deps { store: Store; search: SearchFn; anthropic: Anthropic }
+type Msg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
+type Tool = OpenAI.Chat.Completions.ChatCompletionTool;
 
-const SEARCH_TOOL = {
-  name: 'web_search',
-  description:
-    'Search the web. Returns numbered results [n] with title, host, publication date (or "undated") and a snippet. ' +
-    'Set `since` for "what changed / new since X" questions: it adds results published after that date AND current undated pages.',
-  input_schema: {
-    type: 'object' as const,
-    properties: {
-      query: { type: 'string', description: 'Short, specific query (3-8 words). One entity or topic per call.' },
-      since: { type: 'string', description: 'ISO date YYYY-MM-DD of the earlier answer/event.' },
-      topic: { type: 'string', enum: ['general', 'news'] },
+export interface Deps { store: Store; search: SearchFn; llm: OpenAI }
+
+const SEARCH_TOOL: Tool = {
+  type: 'function',
+  function: {
+    name: 'web_search',
+    description:
+      'Search the web. Returns numbered results [n] with title, host, publication date (or "undated") and a snippet. ' +
+      'Set `since` for "what changed / new since X" questions: it adds results published after that date AND current undated pages.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Short, specific query (3-8 words). One entity or topic per call.' },
+        since: { type: 'string', description: 'ISO date YYYY-MM-DD of the earlier answer/event.' },
+        topic: { type: 'string', enum: ['general', 'news'] },
+      },
+      required: ['query'],
     },
-    required: ['query'],
   },
 };
 
@@ -75,53 +81,89 @@ export async function runAgent(deps: Deps, req: Req, emit: (e: AgentEvent) => vo
 
   // 2) Messages: this conversation's recent turns (timestamped) + the new message.
   const stamp = (d: Date) => `[${isoDateTime(d, req.tz)}] `;
-  const messages: Anthropic.MessageParam[] = [];
+  const messages: Msg[] = [
+    { role: 'system', content: STATIC_PROMPT + '\n\n' + dynamicPrompt(ctx, evidence) },
+  ];
   for (const t of ctx.live) {
     messages.push({ role: 'user', content: stamp(new Date(t.ts)) + t.user });
     messages.push({ role: 'assistant', content: stripCites(t.assistant) || '(no answer)' });
   }
   messages.push({ role: 'user', content: stamp(req.now) + req.message });
 
-  const system: Anthropic.TextBlockParam[] = [
-    { type: 'text', text: STATIC_PROMPT, cache_control: { type: 'ephemeral' } },
-    { type: 'text', text: dynamicPrompt(ctx, evidence) },
-  ];
-
   // 3) Single loop, parallel tools, hard step cap. The last step forbids tools so we always end with an answer.
   let answer = '';
   for (let step = 0; step < config.maxSteps; step++) {
     const last = step === config.maxSteps - 1;
-    const stream = deps.anthropic.messages.stream(
+    const stream = await deps.llm.chat.completions.create(
       {
-        model: config.modelMain, max_tokens: 1800, system, messages, tools: [SEARCH_TOOL],
-        tool_choice: (last ? { type: 'none' } : { type: 'auto' }) as any,
+        model: config.modelMain, max_tokens: 1800, messages, stream: true,
+        ...(last ? {} : { tools: [SEARCH_TOOL], tool_choice: 'auto' as const }),
       },
       { signal },
     );
-    stream.on('text', (d) => {
-      ttft ??= performance.now() - t0;
-      if (answer && step > 0 && !answer.endsWith('\n')) { answer += '\n\n'; emit({ type: 'text', delta: '\n\n' }); }
-      answer += d;
-      emit({ type: 'text', delta: d });
-    });
-    const msg = await stream.finalMessage();
-    messages.push({ role: 'assistant', content: msg.content });
-    const uses = msg.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
-    if (!uses.length) break;
 
-    emit({ type: 'status', text: `Searching: ${uses.map((u) => (u.input as any).query).join(' · ')}` });
-    searches += uses.length;
-    const results = await Promise.all(uses.map(async (u): Promise<Anthropic.ToolResultBlockParam> => {
-      const { query, since, topic } = u.input as { query?: string; since?: string; topic?: string };
+    let stepText = '';
+    let stepStarted = false;
+    const acc: { id: string; name: string; args: string; extra?: unknown }[] = [];
+    for await (const chunk of stream) {
+      const d = chunk.choices[0]?.delta;
+      if (!d) continue;
+      if (typeof d.content === 'string' && d.content) {
+        ttft ??= performance.now() - t0;
+        if (!stepStarted) {
+          stepStarted = true;
+          if (answer && !answer.endsWith('\n')) { answer += '\n\n'; emit({ type: 'text', delta: '\n\n' }); }
+        }
+        answer += d.content;
+        stepText += d.content;
+        emit({ type: 'text', delta: d.content });
+      }
+      for (const tc of d.tool_calls ?? []) {
+        const i = tc.index ?? 0;
+        const slot = (acc[i] ??= { id: '', name: '', args: '' });
+        if (tc.id) slot.id = tc.id;
+        if (tc.function?.name) slot.name = tc.function.name;
+        if (tc.function?.arguments) slot.args += tc.function.arguments;
+        const extra = (tc as { extra_content?: unknown }).extra_content;
+        if (extra) slot.extra = extra;
+      }
+    }
+
+    const calls = acc.filter(Boolean).map((t, i) => ({
+      id: t.id || `call_${step}_${i}`, name: t.name || 'web_search', args: t.args || '{}', extra: t.extra,
+    }));
+
+    const assistant: OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam = {
+      role: 'assistant', content: stepText || null,
+    };
+    if (calls.length) {
+      (assistant as { tool_calls?: unknown[] }).tool_calls = calls.map((c) => {
+        const call: Record<string, unknown> = {
+          id: c.id, type: 'function', function: { name: c.name, arguments: c.args },
+        };
+        // Gemini 3 requires the thought signature from the streamed tool call to be echoed back.
+        if (c.extra) call.extra_content = c.extra;
+        return call;
+      });
+    }
+    messages.push(assistant);
+    if (!calls.length) break;
+
+    emit({ type: 'status', text: `Searching: ${calls.map((c) => { try { return JSON.parse(c.args).query ?? c.name; } catch { return c.name; } }).join(' · ')}` });
+    searches += calls.length;
+    const results = await Promise.all(calls.map(async (c): Promise<Msg> => {
+      let input: { query?: string; since?: string; topic?: string } = {};
+      try { input = JSON.parse(c.args); } catch { /* malformed args */ }
+      const { query, since, topic } = input;
       const ok = since && /^\d{4}-\d{2}-\d{2}$/.test(since) && since <= ctx.today ? since : undefined;
       try {
         const hits = await deps.search(String(query ?? '').slice(0, 200), { since: ok, topic: topic === 'news' ? 'news' : 'general' });
-        return { type: 'tool_result', tool_use_id: u.id, content: formatHits(reg, hits) || 'No results.' };
+        return { role: 'tool', tool_call_id: c.id, content: formatHits(reg, hits) || 'No results.' };
       } catch (e) {
-        return { type: 'tool_result', tool_use_id: u.id, is_error: true, content: `Search failed: ${(e as Error).message}. Tell the user; do not guess.` };
+        return { role: 'tool', tool_call_id: c.id, content: `Search failed: ${(e as Error).message}. Tell the user; do not guess.` };
       }
     }));
-    messages.push({ role: 'user', content: results });
+    for (const r of results) messages.push(r);
     pushSources();
   }
   if (!answer.trim()) { answer = 'I could not produce an answer. Please try again.'; emit({ type: 'text', delta: answer }); }
@@ -135,7 +177,7 @@ export async function runAgent(deps: Deps, req: Req, emit: (e: AgentEvent) => vo
   await deps.store.add(turn);
   emit({ type: 'done', turnId: turn.id, ttftMs: ttft && Math.round(ttft), totalMs: Math.round(performance.now() - t0), searches });
 
-  const claimsDone = extractClaims(deps.anthropic, { user: req.message, answer, today: isoDate(req.now, req.tz) })
-    .then((claims) => deps.store.patch(turn.id, { claims }));
+  const claimsDone = extractClaims(deps.llm, { user: req.message, answer, today: isoDate(req.now, req.tz) })
+    .then(async (claims) => { await deps.store.patch(turn.id, { claims }); return claims; });
   return { turn, claimsDone, answer };
 }

@@ -16,6 +16,19 @@ export class Store {
   conv(uid: string, conv: string) {
     return this.all(uid).filter((t) => t.conv === conv).sort((a, b) => a.ts.localeCompare(b.ts));
   }
+  conversations(uid: string) {
+    const map = new Map<string, { id: string; title: string; snippet: string; updatedAt: string; count: number }>();
+    for (const t of this.all(uid)) {
+      const hit = map.get(t.conv);
+      if (!hit) {
+        map.set(t.conv, { id: t.conv, title: t.user.slice(0, 90), snippet: t.assistant.slice(0, 110), updatedAt: t.ts, count: 1 });
+      } else {
+        hit.count++;
+        if (t.ts > hit.updatedAt) { hit.updatedAt = t.ts; hit.snippet = t.assistant.slice(0, 110); }
+      }
+    }
+    return [...map.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
   add(t: Turn) { this.turns.push(t); return this.flush(); }
   patch(id: string, p: Partial<Turn>) {
     const t = this.turns.find((x) => x.id === id);
