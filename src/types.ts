@@ -14,8 +14,8 @@ export interface Turn {
   tz: string; user: string; assistant: string;
   claims: Claim[]; sources: Source[]; verdicts?: Verdict[];
 }
-export interface Hit { title: string; url: string; content: string; published?: string; dated: boolean }
-export type SearchOpts = { since?: string; topic?: 'general' | 'news' };
+export interface Hit { title: string; url: string; content: string; raw?: string; published?: string; dated: boolean }
+export type SearchOpts = { since?: string; topic?: 'general' | 'news'; entity?: string; includeDomains?: string[] };
 export type SearchFn = (query: string, opts?: SearchOpts) => Promise<Hit[]>;
 
 export type AgentEvent =

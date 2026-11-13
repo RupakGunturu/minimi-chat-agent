@@ -24,7 +24,8 @@ A single-page web chat, one local user, conversations persisted in a JSON store.
 
 ## Capabilities and Constraints
 
-- One tool only: `web_search` (Tavily), with `since` fanning out into dated and current searches.
+- One tool only: `web_search` (Tavily), with `since` fanning out into dated and current searches; current-value checks target known vendor domains.
+- Search evidence is cleaned and read: query-aware excerpts, canonical dedupe, capped page fetches, and primary/secondary labels. A confident verdict backed only by a secondary source is downgraded to "couldn't verify".
 - One streaming model loop with a hard four-step cap and parallel tool calls.
 - Turns stored with UTC timestamps and timezone; retrieval is BM25-style date + topic + claim scoring over small histories.
 - Claims are extracted asynchronously after the answer and reused for re-verification.
@@ -51,6 +52,7 @@ A single-page web chat, one local user, conversations persisted in a JSON store.
 3. Honesty beats confidence: the UI distinguishes verified change, verified stability, and failure to verify.
 4. The tool disappears into the task: familiar chat behavior, fast, keyboard-first.
 5. One idea per surface: the mechanism (time + memory) earns the design, not decoration.
+6. Authority is labeled: show whether evidence is the vendor's own page or someone else's, and never let a secondary source carry a confident verdict alone.
 
 ## Accessibility & Inclusion
 

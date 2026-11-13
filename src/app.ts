@@ -138,6 +138,12 @@ export function createApp(deps: AppDeps) {
       provider,
       models: { main: config.modelMain, fast: config.modelFast },
       search: 'Tavily',
+      searchMode: {
+        depth: config.searchDepth,
+        results: config.searchResults,
+        readPages: config.readPages,
+        pagesPerQuery: config.readPagesPerQuery,
+      },
       configured: { model: !!config.llmApiKey, search: !!process.env.TAVILY_API_KEY },
       auth: config.authHeader === 'x-user-id' ? 'single-user seam' : 'header seam',
       limits: {

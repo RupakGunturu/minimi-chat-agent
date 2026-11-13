@@ -43,8 +43,15 @@ export function resolveDates(text: string, now: Date, tz: string, preferPast: bo
     if (/^(today|now|tonight|right now)$/i.test(r.text.trim())) continue;
     const y = r.start.get('year')!, m = r.start.get('month')!, d = r.start.get('day')!;
     let date = `${y}-${pad(m)}-${pad(d)}`;
-    // "3 November" said in January means last November when the user is talking about the past.
-    if (preferPast && date > today && !r.start.isCertain('year')) date = `${y - 1}-${pad(m)}-${pad(d)}`;
+    const weekdayOnly = r.start.isCertain('weekday') && !r.start.isCertain('year') && !r.start.isCertain('month') && !r.start.isCertain('day');
+    if (preferPast && weekdayOnly) {
+      // chrono can pick the upcoming weekday even with forwardDate:false; for a past-tense request
+      // ("on Monday we shortlisted...") step back whole weeks instead of subtracting a year.
+      while (date > today && !/\bnext\b/i.test(r.text)) date = addDays(date, -7);
+    } else if (preferPast && date > today && !r.start.isCertain('year')) {
+      // "3 November" said in January means last November when the user is talking about the past.
+      date = `${y - 1}-${pad(m)}-${pad(d)}`;
+    }
     // chrono reads "last Tuesday" as the most recent past Tuesday. On a Wednesday people may also mean the
     // Tuesday a week earlier, so keep both readings: retrieval tries both and the model is told which it used.
     let alt: string | undefined;

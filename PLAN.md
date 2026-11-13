@@ -16,7 +16,8 @@ hairline rules, mono dates, system sans prose.
 | Agent loop, streaming, persistence | `src/agent.ts` |
 | Date/memory context and retrieval | `src/context.ts`, `src/retrieve.ts`, `src/time.ts` |
 | Prompt and claim extraction | `src/prompt.ts`, `src/claims.ts` |
-| Search provider and cache | `src/search.ts` |
+| Search provider, page reads, cache | `src/search.ts`, `src/page.ts` |
+| Excerpts, ranking, verdict guard | `src/excerpt.ts`, `src/rank.ts`, `src/verdicts.ts` |
 | Product truth and voice | `PRODUCT.md` |
 | Architecture notes | `DESIGN.md` |
 
@@ -33,6 +34,19 @@ hairline rules, mono dates, system sans prose.
 - [x] No credit, billing, or usage UI.
 - [x] Verify: `node --check`, `npm run typecheck`, offline tests,
   Playwright at 1440/720/390 in light and dark (screenshots not committed).
+
+## Search quality pass
+
+- [x] Advanced Tavily depth, raw content, larger result set, basic-depth fallback on provider 400/422.
+- [x] Query-aware HTML/markdown excerpts and canonical URL dedupe.
+- [x] SSRF-safe top-page reader: redirect revalidation, type allowlist, 512 KB / 6 s caps, cache, concurrency 4.
+- [x] Primary/secondary source labels and entity-aware ranking.
+- [x] Vendor-domain targeting for current-value claim searches.
+- [x] Verdict guard: downgrade if the cited source lacks the entity or is only secondary.
+- [x] Parse and strip tagged or bare JSON verdict lines before persistence.
+- [x] Normalize bare weekdays to the most recent past occurrence for past-tense requests.
+- [x] Offline tests for excerpts, ranking, search targeting, date edge cases, verdict guard.
+- [x] Live verification of the three demo prompts after the search upgrade.
 
 ## Chatbot next steps
 
@@ -106,7 +120,7 @@ hairline rules, mono dates, system sans prose.
 - [x] TypeScript typecheck, eval harness, design detector.
 - [x] Live chat smoke test and mobile/desktop layout checks.
 - [x] Committed Playwright e2e: history, safe rendering, sources, edit, regenerate, settings, mobile drawer.
-- [x] API integration + core tests for `/api/chat`, `/api/history`, retrieval, dates, prompt guards.
+- [x] API integration + core tests for `/api/chat`, `/api/history`, retrieval, dates, search/excerpt/ranking, prompt and verdict guards.
 - [x] README runbook: env, seed, dev, eval, data reset.
 - [ ] Docker or one-command local start.
 

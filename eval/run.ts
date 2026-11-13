@@ -26,21 +26,21 @@ const cases: Case[] = [
     msg: 'Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?',
     check: (c) => !c.resolved.some((r) => r.date === '2026-11-03' || r.alt === '2026-11-03') ? 'did not resolve "last Tuesday" to 2026-11-03 (as date or alt)'
       : !has(c, 'seed-postgres') ? 'postgres turn not retrieved' : c.prefetch.length < 3 ? 'claims not prefetched' : null,
-    rubric: 'Identifies the earlier answer as Tue 3 Nov (may note 10 Nov alternative). Compares Neon/Supabase/RDS prices with fresh sources. Separates changed / unchanged / could not verify. Cites sources. Never says "nothing changed" without naming what was checked.',
+    rubric: 'Identifies the earlier answer as Tue 3 Nov (may note 10 Nov alternative). Compares Neon/Supabase/RDS prices using vendor pricing or changelog pages, not only comparison blogs. Separates changed / unchanged / could not verify. Cites sources. Never says "nothing changed" without naming what was checked.',
   },
   {
     id: 'what-did-i-ask-3-nov',
     msg: 'What did I ask you on 3 November? Is your answer still correct today?',
     check: (c) => !c.resolved.some((r) => r.date === '2026-11-03') ? 'did not resolve 3 November'
       : !(has(c, 'seed-vector') && has(c, 'seed-postgres')) ? 'both 3 Nov turns should be retrieved' : !c.prefetch.length ? 'no prefetch' : null,
-    rubric: 'Lists what the user asked on 3 Nov 2026 (vector database question and Postgres hosting) from history, then re-verifies the old claims against fresh sources and reports per-claim status honestly.',
+    rubric: 'Lists what the user asked on 3 Nov 2026 (vector database question and Postgres hosting) from history, then re-verifies the old claims against fresh primary sources and reports per-claim status honestly, with evidence for every changed/unchanged verdict.',
   },
   {
     id: 'crm-monday',
     msg: 'On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing or shipped something big since?',
     check: (c) => !c.resolved.some((r) => r.date === '2026-11-09') ? 'did not resolve Monday to 2026-11-09'
       : !has(c, 'seed-crm') ? 'crm turn not retrieved' : c.prefetch.length < 5 ? 'expected 5 prefetched checks' : null,
-    rubric: 'Uses the five tools from history (HubSpot, Pipedrive, Zoho, Close, Salesforce), reports pricing/product changes since Mon 9 Nov per tool with sources, and says plainly when nothing was found rather than claiming nothing changed.',
+    rubric: 'Uses the five tools from history (HubSpot, Pipedrive, Zoho, Close, Salesforce), reports pricing/product changes since Mon 9 Nov per tool using vendor-owned pricing or changelog pages where possible, and says plainly when nothing was found rather than claiming nothing changed. A comparison page cannot be the sole pricing source.',
   },
   {
     id: 'missing-history',
@@ -52,7 +52,7 @@ const cases: Case[] = [
     id: 'plain-question',
     msg: 'What is the latest Node.js LTS version?',
     check: (c) => c.noMatch || c.matches.length || c.prefetch.length ? 'memory machinery fired on a plain question' : null,
-    rubric: 'Searches, answers with a current LTS version and cites a source.',
+    rubric: 'Searches, answers with a current LTS version and cites a primary source (nodejs.org or official release notes).',
   },
 ];
 

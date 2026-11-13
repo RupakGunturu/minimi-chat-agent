@@ -7,6 +7,9 @@ const int = (value: string | undefined, fallback: number, min: number, max: numb
   return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.floor(n))) : fallback;
 };
 
+const bool = (value: string | undefined, fallback: boolean) =>
+  value === undefined || value === '' ? fallback : !/^(0|false|no|off)$/i.test(value);
+
 export const config = {
   port: Number(process.env.PORT ?? 3000),
   llmBaseUrl: process.env.LLM_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai/',
@@ -19,7 +22,17 @@ export const config = {
   liveTurns: 10,
   summaryTurns: 24,
   maxPrefetch: 6,
+  searchDepth: (process.env.SEARCH_DEPTH === 'basic' ? 'basic' : 'advanced') as 'basic' | 'advanced',
+  searchResults: int(process.env.SEARCH_RESULTS, 8, 1, 10),
+  readPages: bool(process.env.READ_PAGES, true),
+  readPagesPerQuery: int(process.env.READ_PAGES_PER_QUERY, 1, 0, 4),
+  readChars: int(process.env.READ_CHARS, 600, 200, 2000),
+  searchTimeoutMs: int(process.env.SEARCH_TIMEOUT_MS, 12_000, 2_000, 30_000),
+  fetchTimeoutMs: int(process.env.FETCH_TIMEOUT_MS, 6_000, 1_000, 20_000),
+  maxPageBytes: int(process.env.MAX_PAGE_BYTES, 512 * 1024, 16 * 1024, 2 * 1024 * 1024),
   searchTtlMs: 15 * 60 * 1000,
+  pageCacheTtlMs: 15 * 60 * 1000,
+  verdictGuard: bool(process.env.VERDICT_GUARD, true),
   dataFile: process.env.DATA_FILE || 'data/store.json',
   maxBodyBytes: int(process.env.MAX_BODY_BYTES, 32 * 1024, 1024, 1024 * 1024),
   maxMessageChars: int(process.env.MAX_MESSAGE_CHARS, 4000, 100, 32_000),

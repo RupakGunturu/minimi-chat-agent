@@ -22,6 +22,10 @@ keeps the model loop small:
   strips the control block, validates citations, persists the result, and the UI shows
   *changed / unchanged / couldn't verify* chips. No "nothing changed" without saying what
   was checked.
+- **Evidence is read, not just listed.** Search uses Tavily advanced depth, canonical URL
+  dedupe, clean page excerpts, and a capped top-page read for each claim. Sources are
+  labeled primary/secondary; current-value checks target the vendor's domain when known.
+  A confident verdict backed only by a secondary source is downgraded to "couldn't verify".
 
 Read [`DESIGN.md`](DESIGN.md) for the architecture and the tradeoffs.
 
@@ -50,6 +54,21 @@ Everything else in [`.env.example`](.env.example) is optional. Models run throug
 OpenAI-compatible API; point `LLM_BASE_URL`, `MODEL_MAIN`, and `MODEL_FAST` at another
 provider if you prefer.
 
+## Search quality
+
+Defaults: advanced Tavily depth, 8 results per query, one top-page read per claim
+(600-character excerpt, 512 KB / 6 s caps), 15-minute cache. Claim searches target a
+known vendor domain for the current-value half of a `since` check.
+
+Tune with `SEARCH_DEPTH`, `SEARCH_RESULTS`, `READ_PAGES`, `READ_PAGES_PER_QUERY`,
+`READ_CHARS`, `SEARCH_TIMEOUT_MS`, `FETCH_TIMEOUT_MS`, and `MAX_PAGE_BYTES` in
+[`.env.example`](.env.example). Set `SEARCH_DEPTH=basic` and `READ_PAGES=false` to trade
+evidence quality for latency.
+
+It is deliberately one provider plus page excerpts, not a multi-provider deep-research
+stack: no browser JS rendering, no learned reranker, and the vendor-domain hints are a
+small heuristic.
+
 ## Commands
 
 ```bash
@@ -58,7 +77,7 @@ npm start          # one-shot server
 npm run seed       # reset the store with relative demo history
 npm run eval       # deterministic checks, plus live end-to-end + judge when keys exist
 npm run typecheck  # tsc --noEmit
-npm test           # API + retrieval/date/prompt tests (offline)
+npm test           # API + retrieval/date/search/prompt tests (offline)
 npm run test:e2e   # Playwright UI tests (offline; install browsers once)
 npm run check      # typecheck + client syntax + offline tests
 ```
@@ -81,7 +100,12 @@ starting the server to fake the clock.
 src/time.ts          deterministic date resolution (chrono, timezone-safe)
 src/retrieve.ts      BM25-style date + topic + claim retrieval over past turns
 src/context.ts       what the model gets: dates, history, claims, prefetch plan
-src/search.ts        Tavily wrapper: since -> dated + current fan-out, cache
+src/search.ts        Tavily wrapper: advanced search, since fan-out, page reads, cache
+src/page.ts          SSRF-safe page fetch: redirects, size/time caps, cache, concurrency
+src/excerpt.ts       HTML/markdown cleanup, query-aware excerpts, canonical URLs
+src/rank.ts          primary/secondary source ranking and labels
+src/verdicts.ts      parse and guard changed / unchanged / unverified verdicts
+src/source-check.ts  public-URL validation shared by checks and page reads
 src/agent.ts         one streaming loop, parallel tools, step cap, verdicts, persist
 src/claims.ts        async claim extraction
 src/prompt.ts        static (cached) + dynamic system prompt, sanitize/citation guards

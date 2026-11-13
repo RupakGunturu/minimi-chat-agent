@@ -27,10 +27,10 @@ function blockedLiteral(host: string) {
   return false;
 }
 
-type Validated = { url: URL } | { error: string };
+export type ValidatedUrl = { url: URL } | { error: string };
 
 /** Re-validate every redirect target, not just the first URL (public -> private hop guard). */
-async function validate(target: string | URL): Promise<Validated> {
+export async function validateUrl(target: string | URL): Promise<ValidatedUrl> {
   let url: URL;
   try {
     url = target instanceof URL ? new URL(target.toString()) : new URL(String(target));
@@ -62,7 +62,7 @@ async function attempt(url: URL, method: 'HEAD' | 'GET') {
 }
 
 export async function checkPublicUrl(raw: string): Promise<{ url: string; ok: boolean; status?: number; error?: string }> {
-  const first = await validate(raw);
+  const first = await validateUrl(raw);
   if ('error' in first) return { url: '', ok: false, error: first.error };
   let current = first.url;
 
@@ -84,7 +84,7 @@ export async function checkPublicUrl(raw: string): Promise<{ url: string; ok: bo
       } catch {
         return { url: current.toString(), ok: false, status: response.status, error: 'invalid redirect' };
       }
-      const checked = await validate(next);
+      const checked = await validateUrl(next);
       if ('error' in checked) return { url: next.toString(), ok: false, status: response.status, error: `redirect blocked: ${checked.error}` };
       current = checked.url;
       continue;
