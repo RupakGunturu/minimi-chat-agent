@@ -16,6 +16,9 @@ type Tool = OpenAI.Chat.Completions.ChatCompletionTool;
 
 export interface Deps { store: Store; search: SearchFn; llm: OpenAI }
 
+const GEMINI_OPENAI = /googleapis\.com/i.test(config.llmBaseUrl);
+const SKIP_SIGNATURE = { google: { thought_signature: 'skip_thought_signature_validator' } };
+
 const SEARCH_TOOL: Tool = {
   type: 'function',
   function: {
@@ -173,7 +176,9 @@ export async function runAgent(deps: Deps, req: Req, emit: (e: AgentEvent) => vo
           id: c.id, type: 'function', function: { name: c.name, arguments: c.args },
         };
         // Gemini 3 requires the thought signature from the streamed tool call to be echoed back.
+        // If the provider omits it, the documented skip value avoids a 400 on the tool-result replay.
         if (c.extra) call.extra_content = c.extra;
+        else if (GEMINI_OPENAI) call.extra_content = SKIP_SIGNATURE;
         return call;
       });
     }

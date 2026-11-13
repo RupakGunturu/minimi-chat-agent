@@ -86,8 +86,10 @@ export function createApp(deps: AppDeps) {
         if (claims.length) emit({ type: 'claims', turnId: result.turn.id, claims });
       } catch (e) {
         if (!ac.signal.aborted) {
+          const err = e as Error & { status?: number; code?: string; type?: string; request_id?: string };
           console.error(JSON.stringify({
-            level: 'error', requestId, route: '/api/chat', uid, conv, message: (e as Error).message,
+            level: 'error', requestId, route: '/api/chat', uid, conv, message: err.message,
+            status: err.status, code: err.code, type: err.type, upstreamRequestId: err.request_id,
           }));
           emit({ type: 'error', message: 'The answer could not be completed. Please retry.', requestId });
         }
