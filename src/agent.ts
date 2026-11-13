@@ -19,6 +19,92 @@ export interface Deps { store: Store; search: SearchFn; llm: OpenAI }
 const GEMINI_OPENAI = /googleapis\.com/i.test(config.llmBaseUrl);
 const SKIP_SIGNATURE = { google: { thought_signature: 'skip_thought_signature_validator' } };
 
+type ToolCallDelta = {
+  index?: number;
+  id?: string;
+  function?: { name?: string; arguments?: string };
+  extra_content?: unknown;
+};
+export type CollectedToolCall = { id: string; name: string; args: string; extra?: unknown };
+
+/** Gemini streams parallel calls with no index; id is the only stable separator. */
+export function collectToolCalls(deltas: ToolCallDelta[]): CollectedToolCall[] {
+  const slots: CollectedToolCall[] = [];
+  const byIndex = new Map<number, CollectedToolCall>();
+  const byId = new Map<string, CollectedToolCall>();
+  let last: CollectedToolCall | undefined;
+
+  for (const tc of deltas) {
+    let slot: CollectedToolCall | undefined;
+    if (typeof tc.index === 'number') {
+      slot = byIndex.get(tc.index);
+      if (!slot) {
+        slot = { id: '', name: '', args: '' };
+        byIndex.set(tc.index, slot);
+        slots.push(slot);
+      }
+    } else if (tc.id) {
+      slot = byId.get(tc.id);
+      if (!slot) {
+        slot = { id: '', name: '', args: '' };
+        slots.push(slot);
+      }
+    } else {
+      slot = last ?? { id: '', name: '', args: '' };
+      if (!last) slots.push(slot);
+    }
+
+    if (tc.id) { slot.id = tc.id; byId.set(tc.id, slot); }
+    if (tc.function?.name) slot.name = tc.function.name;
+    if (tc.function?.arguments) slot.args += tc.function.arguments;
+    if (tc.extra_content) slot.extra = tc.extra_content;
+    last = slot;
+  }
+
+  return slots;
+}
+
+function firstJsonObject(text: string): string {
+  const start = text.indexOf('{');
+  if (start < 0) return '';
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') quoted = false;
+    } else if (ch === '"') quoted = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return '';
+}
+
+/** Never replay malformed function arguments; Gemini rejects the next request with a 400. */
+export function validToolArguments(raw: string): string {
+  const text = String(raw ?? '').trim();
+  if (!text) return '{}';
+  try {
+    JSON.parse(text);
+    return text;
+  } catch {
+    const first = firstJsonObject(text);
+    if (first) {
+      try {
+        JSON.parse(first);
+        return first;
+      } catch { /* fall through */ }
+    }
+    return '{}';
+  }
+}
+
 const SEARCH_TOOL: Tool = {
   type: 'function',
   function: {
@@ -138,7 +224,7 @@ export async function runAgent(deps: Deps, req: Req, emit: (e: AgentEvent) => vo
 
     let stepText = '';
     let stepStarted = false;
-    const acc: { id: string; name: string; args: string; extra?: unknown }[] = [];
+    const deltas: ToolCallDelta[] = [];
     for await (const chunk of stream) {
       const d = chunk.choices[0]?.delta;
       if (!d) continue;
@@ -152,21 +238,15 @@ export async function runAgent(deps: Deps, req: Req, emit: (e: AgentEvent) => vo
         stepText += d.content;
         emit({ type: 'text', delta: d.content });
       }
-      for (const tc of d.tool_calls ?? []) {
-        const i = tc.index ?? 0;
-        const slot = (acc[i] ??= { id: '', name: '', args: '' });
-        if (tc.id) slot.id = tc.id;
-        if (tc.function?.name) slot.name = tc.function.name;
-        if (tc.function?.arguments) slot.args += tc.function.arguments;
-        const extra = (tc as { extra_content?: unknown }).extra_content;
-        if (extra) slot.extra = extra;
-      }
+      for (const tc of d.tool_calls ?? []) deltas.push(tc as ToolCallDelta);
     }
 
-    const calls = acc.filter(Boolean).map((t, i) => ({
-      id: t.id || `call_${step}_${i}`, name: t.name || 'web_search', args: t.args || '{}', extra: t.extra,
+    const calls = collectToolCalls(deltas).map((t, i) => ({
+      id: t.id || `call_${step}_${i}`,
+      name: t.name || 'web_search',
+      args: validToolArguments(t.args),
+      extra: t.extra,
     }));
-
     const assistant: OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam = {
       role: 'assistant', content: stepText || null,
     };

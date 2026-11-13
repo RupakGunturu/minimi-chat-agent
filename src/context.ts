@@ -5,7 +5,7 @@ import { isoDate, isoDateTime, resolveDates, type Resolved } from './time.js';
 import type { Claim, Turn } from './types.js';
 
 const PERSONAL_PAST =
-  /\b(i (asked|told|mentioned|said|wanted)|you (told|said|answered|recommended|suggested|gave)|we (shortlisted|discussed|talked|picked|chose|decided|compared|looked|went)|did i|last time|earlier|previous(ly)?|our (last|previous|earlier)|that (answer|recommendation))\b/i;
+  /\b(i (asked|told|mentioned|said|wanted)|you (told|said|answered|recommended|suggested|gave)|we (shortlisted|discussed|talked|picked|chose|decided|compared|looked|went)|did (i|we)|last time|earlier|previous(ly)?|our (last|previous|earlier)|that (answer|recommendation))\b/i;
 const RECHECK = /\b(still|changed?|changes|since|updates?|updated|anything new|shipped|outdated|up to date|re-?check|verify|anymore)\b/i;
 
 export interface Match { turn: Turn; date: string; time: string; inLive: boolean }

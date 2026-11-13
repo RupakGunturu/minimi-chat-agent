@@ -89,7 +89,11 @@ export function retrieve(turns: Turn[], query: string, dates: string[], tz: stri
   return scored
     .filter(({ doc, score, matched }) => {
       if (q.size === 0) return doc.dateHit;
-      return matched >= minMatch && (doc.dateHit || score >= 0.6);
+      // A bare date question ("what did I ask on 3 November?") should not need a
+      // lexical hit. Only use that fallback when the words carry no real signal,
+      // otherwise every turn on the date would match a topic query.
+      const dateOnly = doc.dateHit && dateSet.size > 0 && matched === 0 && q.size <= 1;
+      return (dateOnly || matched >= minMatch) && (doc.dateHit || score >= 0.6);
     })
     .sort((a, b2) => b2.score - a.score || b2.doc.turn.ts.localeCompare(a.doc.turn.ts))
     .slice(0, k)

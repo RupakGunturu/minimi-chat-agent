@@ -99,16 +99,18 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
  * The model then diffs the old claim against both.
  */
 async function run(query: string, opts: SearchOpts, provider: Provider, read: PageReader): Promise<Hit[]> {
-  const base = { ...opts, query };
+  const q = String(query ?? '').trim();
+  if (!q) return [];
+  const base = { ...opts, query: q };
   const official = vendorDomains(opts.entity);
   const current: SearchOpts = { ...base, since: undefined, ...(official.length ? { includeDomains: official } : {}) };
   let hits: Hit[];
   if (!opts.since) {
-    hits = await provider(query, opts.entity && official.length ? current : base);
+    hits = await provider(q, opts.entity && official.length ? current : base);
   } else {
     const [changes, currentHits] = await Promise.allSettled([
-      provider(query, { ...base, since: opts.since }),
-      provider(query, current),
+      provider(q, { ...base, since: opts.since }),
+      provider(q, current),
     ]);
     if (changes.status === 'rejected' && currentHits.status === 'rejected') throw changes.reason;
     const datedLimit = Math.ceil(config.searchResults / 2);
@@ -118,7 +120,7 @@ async function run(query: string, opts: SearchOpts, provider: Provider, read: Pa
     hits = merged.slice(0, config.searchResults + 8);
   }
 
-  const matchQuery = `${query} ${opts.entity ?? ''}`.trim();
+  const matchQuery = `${q} ${opts.entity ?? ''}`.trim();
   hits = dedupe(hits).map((h) => ({
     ...h,
     content: bestExcerpt(h.raw ?? h.content, matchQuery, config.readChars),

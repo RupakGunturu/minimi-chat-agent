@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { collectToolCalls, validToolArguments } from '../src/agent.js';
 import { buildContext } from '../src/context.js';
 import { bestExcerpt, canonicalUrl, decodeEntities, htmlToText } from '../src/excerpt.js';
 import { sanitizeAnswer, validateCitations } from '../src/prompt.js';
@@ -37,6 +38,7 @@ test('date resolution is code-owned', () => {
   const friday = new Date('2026-11-13T09:00:00Z');
   assert.equal(resolveDates('On Monday we shortlisted CRM tools', friday, TZ, true)[0].date, '2026-11-09');
   assert.equal(resolveDates('Monday', friday, TZ, true)[0].date, '2026-11-09');
+  assert.equal(resolveDates('What did we shortlist for the CRM review on Monday?', friday, TZ, true)[0].date, '2026-11-09');
 });
 
 test('retrieval recalls by topic, date, and claim text', async (t) => {
@@ -56,6 +58,10 @@ test('retrieval recalls by topic, date, and claim text', async (t) => {
   );
   assert.deepEqual(
     retrieve(turns, 'What did I ask you then?', ['2026-11-03'], TZ).map((x) => x.id).sort(),
+    ['seed-postgres', 'seed-vector'],
+  );
+  assert.deepEqual(
+    retrieve(turns, 'What did I ask you on 3 November, and is that still true today?', ['2026-11-03'], TZ).map((x) => x.id).sort(),
     ['seed-postgres', 'seed-vector'],
   );
   assert.equal(retrieve(turns, 'HubSpot pricing', [], TZ)[0]?.id, 'seed-crm');
@@ -93,6 +99,23 @@ test('context prefetches dated claims and refuses a plain question', async (t) =
   });
   assert.equal(missing.noMatch, true);
   assert.equal(missing.prefetch.length, 0);
+
+  const friday = new Date('2026-11-13T09:00:00Z');
+  const didWe = buildContext(store, {
+    uid: 'local', conv: 'did-we',
+    message: 'What did we shortlist for the CRM review on Monday? Has any of them changed pricing or shipped something big since?',
+    tz: TZ, now: friday,
+  });
+  assert.equal(didWe.resolved[0]?.date, '2026-11-09');
+  assert.equal(didWe.noMatch, false);
+  assert.equal(didWe.prefetch.length, 5);
+
+  const missingDidWe = buildContext(store, {
+    uid: 'local', conv: 'missing-did-we',
+    message: 'Did we compare MongoDB hosts last Friday?',
+    tz: TZ, now: friday,
+  });
+  assert.equal(missingDidWe.noMatch, true);
 });
 
 test('answers cannot persist control tags or invented citations', () => {
@@ -144,6 +167,32 @@ test('entity-aware ranking prefers the vendor page over a comparison page', () =
   assert.equal(isPrimary(comparison, 'HubSpot pricing'), false);
 });
 
+test('streamed parallel tool calls stay separate without an index', () => {
+  const calls = collectToolCalls([
+    { id: 'call_a', function: { name: 'web_search', arguments: '{"query":"Neon"}' }, extra_content: { google: { thought_signature: 'sig' } } },
+    { id: 'call_b', function: { name: 'web_search', arguments: '{"query":"Supabase"}' } },
+    { id: 'call_c', function: { name: 'web_search', arguments: '{"query":"RDS"}' } },
+  ]);
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls.map((c) => c.id), ['call_a', 'call_b', 'call_c']);
+  assert.deepEqual(calls.map((c) => JSON.parse(c.args).query), ['Neon', 'Supabase', 'RDS']);
+  assert.ok(calls[0].extra);
+  assert.equal(calls[1].extra, undefined);
+
+  const fragmented = collectToolCalls([
+    { id: 'call_a', function: { name: 'web_search', arguments: '{"query":' } },
+    { id: 'call_a', function: { arguments: '"Neon"}' } },
+  ]);
+  assert.equal(fragmented.length, 1);
+  assert.equal(fragmented[0].args, '{"query":"Neon"}');
+});
+
+test('malformed tool arguments never get replayed raw', () => {
+  assert.equal(validToolArguments('{"query":"Neon"}{"query":"Supabase"}'), '{"query":"Neon"}');
+  assert.equal(validToolArguments('not json'), '{}');
+  assert.equal(validToolArguments(''), '{}');
+});
+
 test('search dedupes URLs and reads the primary result', async () => {
   let reads = 0;
   const official: Hit = {
@@ -170,6 +219,16 @@ test('search dedupes URLs and reads the primary result', async () => {
   assert.equal(reads, 1);
   const primary = hits.find((h) => h.url.includes('hubspot.com'));
   assert.match(primary?.content ?? '', /\$20/);
+});
+
+test('an empty search query does not reach the provider', async () => {
+  let calls = 0;
+  const search = makeSearch({
+    provider: async () => { calls++; return []; },
+    read: async () => '',
+  });
+  assert.deepEqual(await search('   '), []);
+  assert.equal(calls, 0);
 });
 
 test('claim searches target the vendor domain for current values', async () => {
