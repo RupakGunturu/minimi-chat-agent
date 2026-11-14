@@ -1,4 +1,4 @@
-# Minimi
+# Minimi Hiring Challenge
 
 A time-aware chat assistant with exactly one tool: **web search**.
 
@@ -27,7 +27,7 @@ keeps the model loop small:
   labeled primary/secondary; current-value checks target the vendor's domain when known.
   A confident verdict backed only by a secondary source is downgraded to "couldn't verify".
 
-Read [`DESIGN.md`](DESIGN.md) for the architecture and the tradeoffs.
+Read [`design.md`](design.md) for the architecture and the tradeoffs.
 
 ## Quickstart
 
@@ -50,7 +50,7 @@ local store.
 | `GEMINI_API_KEY` (or `LLM_API_KEY`) | yes | answers, tool calls, claim extraction |
 | `TAVILY_API_KEY` | yes | `web_search` |
 
-Everything else in [`.env.example`](.env.example) is optional. Models run through the
+Everything else in [`.env.example`](../.env.example) is optional. Models run through the
 OpenAI-compatible API; point `LLM_BASE_URL`, `MODEL_MAIN`, and `MODEL_FAST` at another
 provider if you prefer.
 
@@ -62,7 +62,7 @@ known vendor domain for the current-value half of a `since` check.
 
 Tune with `SEARCH_DEPTH`, `SEARCH_RESULTS`, `READ_PAGES`, `READ_PAGES_PER_QUERY`,
 `READ_CHARS`, `SEARCH_TIMEOUT_MS`, `FETCH_TIMEOUT_MS`, and `MAX_PAGE_BYTES` in
-[`.env.example`](.env.example). Set `SEARCH_DEPTH=basic` and `READ_PAGES=false` to trade
+[`.env.example`](../.env.example). Set `SEARCH_DEPTH=basic` and `READ_PAGES=false` to trade
 evidence quality for latency.
 
 It is deliberately one provider plus page excerpts, not a multi-provider deep-research
@@ -83,6 +83,23 @@ npm run check      # typecheck + client syntax + offline tests
 ```
 
 The first Playwright run needs `npx playwright install chromium`.
+
+## Deploy
+
+Minimi is one Node process, not a static site:
+
+```bash
+npm ci
+npm start
+```
+
+Set `GEMINI_API_KEY` and `TAVILY_API_KEY` in the host's environment, and let the host
+provide `PORT`. `DATA_FILE` must point at a persistent disk, or conversations reset when
+the filesystem is replaced.
+
+The built-in `AUTH_HEADER` seam is single-user demo plumbing, not real accounts. Do not
+expose one shared deployment to multiple users without adding authentication and
+per-user storage.
 
 ## Try these
 

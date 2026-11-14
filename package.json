@@ -1,5 +1,7 @@
 {
   "name": "minimi",
+  "description": "Time-aware chat assistant with dated memory and claim re-verification.",
+  "repository": "https://github.com/RupakGunturu/minimi-chat-agent",
   "private": true,
   "type": "module",
   "engines": {
@@ -18,7 +20,7 @@
     "check": "npm run typecheck && npm run check:client && npm test"
   },
   "dependencies": {
-    "@hono/node-server": "^1.13.0",
+    "@hono/node-server": "^2.1.8",
     "chrono-node": "^2.7.7",
     "dotenv": "^16.4.5",
     "hono": "^4.6.0",

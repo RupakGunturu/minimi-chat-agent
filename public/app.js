@@ -68,8 +68,8 @@ const setStore = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 const removeStore = (k) => { try { localStorage.removeItem(k); } catch {} };
 
 const DEFAULT_SETTINGS = {
-  theme: 'system',
-  accent: 'ox',
+  theme: 'light',
+  accent: 'cobalt',
   size: 'md',
   density: 'comfortable',
   width: 760,
@@ -80,19 +80,26 @@ const DEFAULT_SETTINGS = {
   tz: '',
 };
 const ACCENTS = {
-  ox: { light: '#8a3030', dark: '#d58d80', softLight: '#f0ded6', softDark: '#33211f' },
-  blue: { light: '#2e4f78', dark: '#94b4da', softLight: '#dce6f1', softDark: '#1c2a38' },
-  green: { light: '#3f6b4f', dark: '#93c5a6', softLight: '#dfe9df', softDark: '#1d2b22' },
-  violet: { light: '#6b4a7a', dark: '#c4a0d4', softLight: '#eadff0', softDark: '#2a1f30' },
-  amber: { light: '#8a5a1f', dark: '#e0b57e', softLight: '#f2e6cd', softDark: '#332613' },
+  cobalt: { light: '#1d4ed8', dark: '#8ab4ff', softLight: '#e8eefc', softDark: '#15233b' },
+  teal: { light: '#0f6b63', dark: '#72d5c8', softLight: '#e3f2f0', softDark: '#102a2a' },
+  forest: { light: '#2f6b3f', dark: '#8fd3a1', softLight: '#e5f1e8', softDark: '#14281b' },
+  plum: { light: '#7a3f6b', dark: '#d9a4ce', softLight: '#f2e6ef', softDark: '#2b1826' },
+  amber: { light: '#8a5a1f', dark: '#e6b878', softLight: '#f5ecda', softDark: '#2b2113' },
 };
 let settings = { ...DEFAULT_SETTINGS };
 try { settings = { ...settings, ...(JSON.parse(getStore('minimi-settings') || '{}') || {}) }; } catch {}
+if (!ACCENTS[settings.accent]) settings.accent = DEFAULT_SETTINGS.accent;
 const saveSettings = () => setStore('minimi-settings', JSON.stringify(settings));
+if (getStore('minimi-palette-version') !== '2') {
+  if (settings.theme === 'system') settings.theme = 'light';
+  if (!ACCENTS[settings.accent]) settings.accent = DEFAULT_SETTINGS.accent;
+  setStore('minimi-palette-version', '2');
+  saveSettings();
+}
 
 const hexRgba = (hex, a) => {
   const h = String(hex || '').replace('#', '');
-  if (h.length !== 6) return `rgba(138,48,48,${a})`;
+  if (h.length !== 6) return `rgba(29,78,216,${a})`;
   const n = parseInt(h, 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 };
@@ -114,23 +121,27 @@ function applySettings() {
   else delete root.dataset.motion;
   root.style.setProperty('--col', `${Number(settings.width) || 760}px`);
   const themeMeta = $('#themeColor');
-  if (themeMeta) themeMeta.content = isDark() ? '#14120f' : '#ece3cf';
+  if (themeMeta) themeMeta.content = isDark() ? '#0d1016' : '#f7f8fa';
 
-  const accent = ACCENTS[settings.accent] || ACCENTS.ox;
+  const accent = ACCENTS[settings.accent] || ACCENTS.cobalt;
   const color = isDark() ? accent.dark : accent.light;
   const soft = isDark() ? accent.softDark : accent.softLight;
   root.style.setProperty('--ox', color);
   root.style.setProperty('--ox-soft', soft);
-  root.style.setProperty('--ox-line', hexRgba(color, isDark() ? 0.34 : 0.32));
+  root.style.setProperty('--ox-line', hexRgba(color, isDark() ? 0.32 : 0.26));
   root.style.setProperty('--accent', color);
   root.style.setProperty('--accent-soft', soft);
-  root.style.setProperty('--accent-line', hexRgba(color, isDark() ? 0.34 : 0.32));
+  root.style.setProperty('--accent-line', hexRgba(color, isDark() ? 0.32 : 0.26));
 
   const labels = { system: 'Auto', light: 'Light', dark: 'Dark' };
   const themeLabel = $('#themeLabel');
   if (themeLabel) themeLabel.textContent = labels[settings.theme] || 'Auto';
   $$('[data-theme-choice]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.themeChoice === settings.theme)));
-  $$('[data-accent]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.accent === settings.accent)));
+  $$('[data-accent]').forEach((b) => {
+    const swatch = ACCENTS[b.dataset.accent];
+    if (swatch) b.style.setProperty('--swatch', isDark() ? swatch.dark : swatch.light);
+    b.setAttribute('aria-pressed', String(b.dataset.accent === settings.accent));
+  });
   $$('[data-size-choice]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sizeChoice === settings.size)));
   $$('[data-density-choice]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.densityChoice === settings.density)));
   const widthRange = $('#widthRange');

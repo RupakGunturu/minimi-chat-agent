@@ -41,7 +41,7 @@ A single-page web chat, one local user, conversations persisted in a JSON store.
 
 ## Evidence on Hand
 
-- `DESIGN.md` documents the architecture and its tradeoffs.
+- `design.md` documents the architecture and its tradeoffs.
 - `src/seed-data.ts` contains illustrative demo history that may be deliberately stale; it is synthetic, not real customer data.
 - No real user testimonials, benchmarks, customers, or press exist. Future work must not fabricate them.
 
